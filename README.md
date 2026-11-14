@@ -4,6 +4,13 @@ A Claude Code subagent + skill that works like a senior Linux L3 support enginee
 production server: collects evidence **read-only**, correlates it against the outage timestamps, finds the
 root cause, proposes fixes with risk and rollback, and writes a client-ready RCA report.
 
+Output comes in two phases, as XML reports (CIS-CAT / OpenSCAP style) that also render to HTML:
+
+| Phase | What | Who reads it | How it's made |
+|---|---|---|---|
+| **1. Collect & health check** | `phase1-report.xml`: event statistics, sar peaks, service/OOM tables and ~30 pass/warn/fail checks with a score | Sysadmin, 2-minute review | `collect.sh` + `phase1-report.sh` — bash + awk, no AI, deterministic |
+| **2. Deep analysis** | `phase2-analysis.xml`: root cause with confidence, findings with evidence, timeline, per-domain health, verdict on every Phase 1 failure, recommendations with rollback | Engineer / management / client | The agent; validated against `phase2.xsd` |
+
 Built for the "intermittent server outage — find the root cause and write an RCA" kind of engagement on
 RHEL / CentOS / Rocky / Alma / Ubuntu / Debian.
 
@@ -14,14 +21,19 @@ agents/linux-l3-rca.md                     subagent definition (preloads the ski
 skills/linux-outage-rca/
   SKILL.md                                 workflow + safety rules
   scripts/collect.sh                       read-only evidence bundle (~20 s, time-boxed commands)
+  scripts/phase1-report.sh                 Phase 1 XML: statistics + CIS-style checks (bash + awk only)
+  scripts/render.sh                        validate + render either report to HTML (xsltproc)
   scripts/watch.sh                         opt-in flight recorder to catch the next occurrence
   references/playbook.md                   triage questions, read order, decision tree, common fixes
-  templates/rca-report.md                  RCA deliverable format
+  templates/phase2-analysis.xml, phase2.xsd   Phase 2 skeleton + schema
+  templates/phase1.xsl, phase2.xsl         HTML renderers
+  templates/rca-report.md                  optional Markdown RCA
 local/claude-local.sh                      run the agent on a local Ollama model (offline)
 docs/privacy-and-local-mode.md             redaction + local-model guide
 examples/
   lab-fault/                               the fault used to test the agent blind
   RCA-example-inventory-api.md             the report the agent produced
+  phase-reports/                           Phase 1 + Phase 2 XML (and rendered HTML) from the same lab fault
 ```
 
 ## Install
@@ -43,10 +55,30 @@ In Claude Code:
 Or hand it a bundle the client produced themselves:
 
 ```bash
-sudo bash collect.sh -d 14 -s 30      # on the server; produces /tmp/rca-<host>-<ts>.tar.gz
+# on the server: copy both scripts, then
+sudo bash collect.sh -d 14 -s 30 -l 443,8088   # -l = ports that must be listening
+                                     # -> /tmp/rca-<host>-<ts>.tar.gz with phase1-report.xml inside
+bash render.sh rca-<host>-<ts>/phase1-report.xml   # -> HTML for the sysadmin (anywhere with xsltproc)
 ```
 
 > Analyse ./rca-web01-20261114-071313.tar.gz and write an RCA.
+
+## Phase 1 checks
+
+| Group | Checks |
+|---|---|
+| Services | expected ports listening at collection time (`-l`) |
+| Stability | kernel panic/Oops, unclean previous boots, OOM killer, hung tasks, soft lockups/RCU stalls, service crash/restart loops, core dumps |
+| Hardware / platform | MCE/EDAC, block I/O errors, tainted kernel, CPU steal |
+| Storage | filesystem errors / read-only remounts, space, inodes, NFS not responding, disk await, iowait |
+| Memory | available memory, swap usage, PSI memory pressure, swap storms in history |
+| CPU / limits | load vs CPUs, historical load spikes, D-state tasks, fd / allocation exhaustion |
+| Network | conntrack, link/tx-timeout/SYN flood events, NIC error counters, softnet drops, listen overflows |
+| Observability | sysstat history + interval, kdump readiness, persistent journal, clock sync |
+
+Phase 1 is pattern matching: it shows where to look. Phase 2 decides, with evidence, whether each failed
+check is the root cause, a symptom, or unrelated noise. Tested identical under gawk, mawk, busybox awk and
+BSD awk.
 
 ## Safety model
 

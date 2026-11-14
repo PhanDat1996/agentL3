@@ -1,0 +1,653 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Phase 1 Report — damon</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--mute:#6b6b66;--line:#e3e2dc;--pass:#2f7d4f;--warn:#a86a00;--fail:#b3261e;--nc:#77756d;--chip:#f0efe9}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--fg:#ecebe6;--mute:#a09e96;--line:#34332f;--pass:#5fbf86;--warn:#e0a53a;--fail:#ff7a6e;--nc:#9a988f;--chip:#2a2a27}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 -apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:28px 0 10px}
+.mute{color:var(--mute)}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px}
+.big{font-size:26px;font-weight:650}.k{font-size:12px;color:var(--mute);text-transform:uppercase;letter-spacing:.04em}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}th{font-size:12px;color:var(--mute);font-weight:600}
+tr:last-child td{border-bottom:0}.wrap{overflow-x:auto}
+.r{font-weight:650;font-size:12px;padding:2px 8px;border-radius:99px;background:var(--chip);white-space:nowrap}
+.pass{color:var(--pass)}.warn{color:var(--warn)}.fail{color:var(--fail)}.notchecked{color:var(--nc)}
+.st-healthy{color:var(--pass)}.st-attention{color:var(--warn)}.st-degraded,.st-critical{color:var(--fail)}
+code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}
+</style>
+</head>
+<body><main><h1>Phase 1 — Collection &amp; Health Check</h1>
+<div class="mute">damon · Ubuntu 26.04 LTS · kernel 7.0.0-42-generic ·
+ xen · 4 CPU · 7393 MiB ·
+ window 3 days since 2026-11-11 08:54:41</div>
+<h2>Summary</h2>
+<div class="grid">
+<div class="card">
+<div class="k">Status</div>
+<div class="big st-critical">critical</div>
+</div>
+<div class="card">
+<div class="k">Score</div>
+<div class="big">82.4%</div>
+</div>
+<div class="card">
+<div class="k">Pass</div>
+<div class="big pass">28</div>
+</div>
+<div class="card">
+<div class="k">Warn</div>
+<div class="big warn">3</div>
+</div>
+<div class="card">
+<div class="k">Fail</div>
+<div class="big fail">3</div>
+</div>
+<div class="card">
+<div class="k">Boots / unclean</div>
+<div class="big">1 / 0</div>
+</div>
+</div>
+<h2>Checks needing attention</h2>
+<div class="wrap"><table>
+<tr>
+<th>ID</th>
+<th>Result</th>
+<th>Severity</th>
+<th>Check</th>
+<th>Observed</th>
+<th>Expected</th>
+<th>Evidence</th>
+</tr>
+<tr>
+<td class="mono">STAB-03</td>
+<td><span class="r fail">fail</span></td>
+<td>high</td>
+<td>No OOM-killer activity<div class="mute">Check whether CONSTRAINT_MEMCG (service limit) or global OOM.</div>
+</td>
+<td>3 processes killed (last 2026-11-14T07:16:01)</td>
+<td>0</td>
+<td class="mono">00-signals.txt, 06-memory.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-06</td>
+<td><span class="r fail">fail</span></td>
+<td>high</td>
+<td>Services not crashing or restart-looping<div class="mute">See the per-unit table in statistics.</div>
+</td>
+<td>0 failed units now; 5 unit failures, 3 automatic restarts in window; 6 failure log lines</td>
+<td>0</td>
+<td class="mono">12-services.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-01</td>
+<td><span class="r fail">fail</span></td>
+<td>critical</td>
+<td>No filesystem errors / read-only remounts</td>
+<td>4 events; 0 read-only mounts now</td>
+<td>0</td>
+<td class="mono">00-signals.txt, 08-storage.txt</td>
+</tr>
+<tr>
+<td class="mono">MEM-04</td>
+<td><span class="r warn">warn</span></td>
+<td>medium</td>
+<td>No swap storms in history</td>
+<td>max pswpout/s 224.91 at 2026-11-14 07:00:21; max %memused 27.35; max majflt/s 4.99</td>
+<td>pswpout/s &lt; 100</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">NET-04</td>
+<td><span class="r warn">warn</span></td>
+<td>low</td>
+<td>No listen-queue overflows (since boot)<div class="mute">Cumulative since boot; correlate with outage times before blaming.</div>
+</td>
+<td>ListenOverflows=1781 ListenDrops=1781</td>
+<td>0</td>
+<td class="mono">09-network.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-02</td>
+<td><span class="r warn">warn</span></td>
+<td>low</td>
+<td>sar sampling interval short enough for short outages</td>
+<td>579s</td>
+<td>&lt;= 300 s (60 s ideal)</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+</table></div>
+<h2>Event statistics</h2>
+<div class="wrap"><table>
+<tr>
+<th>Category</th>
+<th>Count</th>
+<th>First</th>
+<th>Last</th>
+</tr>
+<tr>
+<td>service_failure</td>
+<td><b>6</b></td>
+<td class="mono">2026-11-14T04:21:30</td>
+<td class="mono">2026-11-14T07:16:01</td>
+</tr>
+<tr>
+<td>filesystem</td>
+<td><b>4</b></td>
+<td class="mono">2026-11-13T00:29:05</td>
+<td class="mono">2026-11-13T00:30:08</td>
+</tr>
+<tr>
+<td>oom</td>
+<td><b>3</b></td>
+<td class="mono">2026-11-14T07:04:01</td>
+<td class="mono">2026-11-14T07:16:01</td>
+</tr>
+</table></div>
+<h2>Services &amp; OOM victims</h2>
+<div class="wrap"><table>
+<tr>
+<th>Unit / process</th>
+<th>Failures</th>
+<th>Auto restarts</th>
+<th>Last result / OOM kills</th>
+</tr>
+<tr>
+<td class="mono">inventory-api.service</td>
+<td>3</td>
+<td>3</td>
+<td>oom-kill</td>
+</tr>
+<tr>
+<td class="mono">labtimer-demo.service</td>
+<td>2</td>
+<td>0</td>
+<td>signal</td>
+</tr>
+<tr>
+<td class="mono">python3 (process)</td>
+<td>—</td>
+<td>—</td>
+<td>OOM-killed 3×</td>
+</tr>
+</table></div>
+<h2>Historical peaks (sar, interval 579s)</h2>
+<div class="wrap"><table>
+<tr>
+<th>Metric</th>
+<th>Max</th>
+<th>At</th>
+<th>Device</th>
+</tr>
+<tr>
+<td class="mono">%commit</td>
+<td><b>31.24</b></td>
+<td class="mono">2026-11-14 04:20:00</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">%iowait</td>
+<td><b>1.08</b></td>
+<td class="mono">2026-11-12 00:20:21</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">%memused</td>
+<td><b>27.35</b></td>
+<td class="mono">2026-11-12 01:00:21</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">%steal</td>
+<td><b>0.34</b></td>
+<td class="mono">2026-11-12 01:00:21</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">%util</td>
+<td><b>11.07</b></td>
+<td class="mono">2026-11-12 00:20:21</td>
+<td>ubuntu--vg-ubuntu--lv</td>
+</tr>
+<tr>
+<td class="mono">await</td>
+<td><b>47.68</b></td>
+<td class="mono">2026-11-11 09:50:21</td>
+<td>xvda</td>
+</tr>
+<tr>
+<td class="mono">blocked</td>
+<td><b>1</b></td>
+<td class="mono">2026-11-11 09:00:21</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">ldavg-1</td>
+<td><b>2.15</b></td>
+<td class="mono">2026-11-12 00:10:30</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">majflt/s</td>
+<td><b>4.99</b></td>
+<td class="mono">2026-11-12 03:50:11</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">pswpout/s</td>
+<td><b>224.91</b></td>
+<td class="mono">2026-11-14 07:00:21</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">runq-sz</td>
+<td><b>3</b></td>
+<td class="mono">2026-11-12 00:10:30</td>
+<td></td>
+</tr>
+</table></div>
+<h2>Current resources</h2>
+<div class="wrap"><table>
+<tr>
+<th>Metric</th>
+<th>Value</th>
+</tr>
+<tr>
+<td class="mono">mem_available_pct</td>
+<td>89.7</td>
+</tr>
+<tr>
+<td class="mono">swap_used_pct</td>
+<td>0.2</td>
+</tr>
+<tr>
+<td class="mono">psi_memory_full_avg300</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td class="mono">psi_io_full_avg300</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td class="mono">psi_cpu_some_avg300</td>
+<td>0.00</td>
+</tr>
+<tr>
+<td class="mono">load_1_5_15</td>
+<td>0.13 0.12 0.09</td>
+</tr>
+<tr>
+<td class="mono">d_state_tasks</td>
+<td>0</td>
+</tr>
+<tr>
+<td class="mono">fd_used_pct</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td class="mono">conntrack_used_pct</td>
+<td>0.0</td>
+</tr>
+<tr>
+<td class="mono">softnet_drops</td>
+<td>0</td>
+</tr>
+<tr>
+<td class="mono">listen_overflows</td>
+<td>1781</td>
+</tr>
+<tr>
+<td class="mono">fs /</td>
+<td>50% used</td>
+</tr>
+<tr>
+<td class="mono">fs /boot</td>
+<td>11% used</td>
+</tr>
+</table></div>
+<h2>All checks</h2>
+<div class="wrap"><table>
+<tr>
+<th>ID</th>
+<th>Result</th>
+<th>Severity</th>
+<th>Check</th>
+<th>Observed</th>
+<th>Expected</th>
+<th>Evidence</th>
+</tr>
+<tr>
+<td class="mono">STAB-01</td>
+<td><span class="r pass">pass</span></td>
+<td>critical</td>
+<td>No kernel panic / BUG / Oops<div class="mute">Get the call trace; enable kdump if not already.</div>
+</td>
+<td>0 events (last )</td>
+<td>0</td>
+<td class="mono">00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-02</td>
+<td><span class="r pass">pass</span></td>
+<td>critical</td>
+<td>Previous boots ended with a clean shutdown<div class="mute">Unclean end = crash, power loss, hypervisor or hardware watchdog reset.</div>
+</td>
+<td>0 unclean of 0 previous boots</td>
+<td>0 unclean</td>
+<td class="mono">02-boots.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-03</td>
+<td><span class="r fail">fail</span></td>
+<td>high</td>
+<td>No OOM-killer activity<div class="mute">Check whether CONSTRAINT_MEMCG (service limit) or global OOM.</div>
+</td>
+<td>3 processes killed (last 2026-11-14T07:16:01)</td>
+<td>0</td>
+<td class="mono">00-signals.txt, 06-memory.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-04</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>No hung tasks (blocked &gt; 120 s)<div class="mute">Usually storage / NFS latency; read the blocked task stack.</div>
+</td>
+<td>0 (last )</td>
+<td>0</td>
+<td class="mono">00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-05</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>No soft lockups / RCU stalls<div class="mute">On VMs check CPU steal / host overcommit.</div>
+</td>
+<td>0 (last )</td>
+<td>0</td>
+<td class="mono">00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-06</td>
+<td><span class="r fail">fail</span></td>
+<td>high</td>
+<td>Services not crashing or restart-looping<div class="mute">See the per-unit table in statistics.</div>
+</td>
+<td>0 failed units now; 5 unit failures, 3 automatic restarts in window; 6 failure log lines</td>
+<td>0</td>
+<td class="mono">12-services.txt</td>
+</tr>
+<tr>
+<td class="mono">SVC-01</td>
+<td><span class="r notchecked">notchecked</span></td>
+<td>critical</td>
+<td>Expected service ports are listening at collection time</td>
+<td>no ports given</td>
+<td>pass collect.sh -l PORTS</td>
+<td class="mono">09-network.txt</td>
+</tr>
+<tr>
+<td class="mono">STAB-07</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>No application core dumps</td>
+<td>0</td>
+<td>0</td>
+<td class="mono">12-services.txt</td>
+</tr>
+<tr>
+<td class="mono">HW-01</td>
+<td><span class="r pass">pass</span></td>
+<td>critical</td>
+<td>No machine-check / EDAC / hardware errors<div class="mute">Escalate to hardware vendor / hypervisor team.</div>
+</td>
+<td>0</td>
+<td>0</td>
+<td class="mono">00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">HW-02</td>
+<td><span class="r pass">pass</span></td>
+<td>critical</td>
+<td>No block-device I/O errors</td>
+<td>0 (last )</td>
+<td>0</td>
+<td class="mono">00-signals.txt, 08-storage.txt</td>
+</tr>
+<tr>
+<td class="mono">HW-03</td>
+<td><span class="r pass">pass</span></td>
+<td>low</td>
+<td>Kernel not tainted<div class="mute">Non-zero: proprietary/out-of-tree module or prior warning; affects vendor support.</div>
+</td>
+<td>tainted=0</td>
+<td>0</td>
+<td class="mono">01-system.txt</td>
+</tr>
+<tr>
+<td class="mono">HW-04</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>CPU steal time low (hypervisor contention)</td>
+<td>max 0.34% at 2026-11-12 01:00:21</td>
+<td>&lt; 5%</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-01</td>
+<td><span class="r fail">fail</span></td>
+<td>critical</td>
+<td>No filesystem errors / read-only remounts</td>
+<td>4 events; 0 read-only mounts now</td>
+<td>0</td>
+<td class="mono">00-signals.txt, 08-storage.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-02</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>Filesystem space usage below 85%</td>
+<td>max 50% on /</td>
+<td>&lt; 85%</td>
+<td class="mono">08-storage.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-03</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>Inode usage below 85%</td>
+<td>max 16% on /</td>
+<td>&lt; 85%</td>
+<td class="mono">08-storage.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-04</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>No NFS server-not-responding events</td>
+<td>0</td>
+<td>0</td>
+<td class="mono">00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-05</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>Disk latency (await) acceptable</td>
+<td>max 47.68 ms at 2026-11-11 09:50:21</td>
+<td>&lt; 50 ms</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">STO-06</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>CPU iowait acceptable</td>
+<td>max 1.08% at 2026-11-12 00:20:21</td>
+<td>&lt; 10%</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">MEM-01</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>Available memory above 10%</td>
+<td>89.7% available (6628 MiB)</td>
+<td>&gt; 10%</td>
+<td class="mono">06-memory.txt</td>
+</tr>
+<tr>
+<td class="mono">MEM-02</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>Swap usage below 50%<div class="mute">Swap can hide a leak until a limit (MemorySwapMax, no swap) removes the cushion.</div>
+</td>
+<td>0.2% of 4095 MiB</td>
+<td>&lt; 50%</td>
+<td class="mono">06-memory.txt</td>
+</tr>
+<tr>
+<td class="mono">MEM-03</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>Memory pressure (PSI full avg300) low</td>
+<td>0.00</td>
+<td>&lt; 1</td>
+<td class="mono">06-memory.txt</td>
+</tr>
+<tr>
+<td class="mono">MEM-04</td>
+<td><span class="r warn">warn</span></td>
+<td>medium</td>
+<td>No swap storms in history</td>
+<td>max pswpout/s 224.91 at 2026-11-14 07:00:21; max %memused 27.35; max majflt/s 4.99</td>
+<td>pswpout/s &lt; 100</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">CPU-01</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>Load average (15 min) within CPU count</td>
+<td>load 0.13 on 4 CPUs</td>
+<td>&lt; 4</td>
+<td class="mono">07-cpu-procs.txt</td>
+</tr>
+<tr>
+<td class="mono">CPU-02</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>No load spikes in history</td>
+<td>max ldavg-1 2.15 at 2026-11-12 00:10:30; max blocked 1</td>
+<td>&lt; 8</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">CPU-03</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>No processes stuck in D state now</td>
+<td>0</td>
+<td>0</td>
+<td class="mono">07-cpu-procs.txt</td>
+</tr>
+<tr>
+<td class="mono">LIM-01</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>File descriptors / allocation limits not exhausted</td>
+<td>fd 0.0% used; 0 'too many open files' / allocation-failure events</td>
+<td>&lt; 70%, 0 events</td>
+<td class="mono">07-cpu-procs.txt, 00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">NET-01</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>Network stack healthy (conntrack, link, SYN flood)</td>
+<td>conntrack 0.0%; 0 network events (last )</td>
+<td>&lt; 70%, 0 events</td>
+<td class="mono">09-network.txt, 00-signals.txt</td>
+</tr>
+<tr>
+<td class="mono">NET-02</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>No NIC error/drop counters</td>
+<td>0 non-zero error counters</td>
+<td>0</td>
+<td class="mono">09-network.txt</td>
+</tr>
+<tr>
+<td class="mono">NET-03</td>
+<td><span class="r pass">pass</span></td>
+<td>low</td>
+<td>No softnet backlog drops</td>
+<td>0</td>
+<td>0</td>
+<td class="mono">09-network.txt</td>
+</tr>
+<tr>
+<td class="mono">NET-04</td>
+<td><span class="r warn">warn</span></td>
+<td>low</td>
+<td>No listen-queue overflows (since boot)<div class="mute">Cumulative since boot; correlate with outage times before blaming.</div>
+</td>
+<td>ListenOverflows=1781 ListenDrops=1781</td>
+<td>0</td>
+<td class="mono">09-network.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-01</td>
+<td><span class="r pass">pass</span></td>
+<td>high</td>
+<td>Historical performance data (sysstat) available<div class="mute">Install/enable sysstat; 1-minute interval for intermittent issues.</div>
+</td>
+<td>yes, interval 579s</td>
+<td>yes</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-02</td>
+<td><span class="r warn">warn</span></td>
+<td>low</td>
+<td>sar sampling interval short enough for short outages</td>
+<td>579s</td>
+<td>&lt;= 300 s (60 s ideal)</td>
+<td class="mono">10-sar.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-03</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>kdump ready to capture a kernel crash</td>
+<td>crash kernel loaded=1; crashkernel= on cmdline: 1; vmcores present: 0</td>
+<td>loaded=1</td>
+<td class="mono">13-kdump.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-04</td>
+<td><span class="r pass">pass</span></td>
+<td>medium</td>
+<td>Journal is persistent across reboots<div class="mute">Without it, logs from before a crash are lost.</div>
+</td>
+<td>persistent</td>
+<td>persistent</td>
+<td class="mono">04-journal-disk-usage.txt</td>
+</tr>
+<tr>
+<td class="mono">OBS-05</td>
+<td><span class="r pass">pass</span></td>
+<td>low</td>
+<td>Clock synchronised (needed to correlate events)</td>
+<td>synchronized</td>
+<td>synchronized</td>
+<td class="mono">01-system.txt</td>
+</tr>
+</table></div>
+<p class="mute">Generated 2026-11-14T09:02:40Z by phase1-report.sh v1.0. Phase 1 is automated pattern matching: it shows where to look, not why. Root cause is established in Phase 2.</p></main></body>
+</html>

@@ -1,0 +1,283 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="phase1.xsl"?>
+<rca-phase1-report version="1.0" generated="2026-11-14T09:02:40Z" redacted="false">
+  <system>
+    <host>damon</host>
+    <os>Ubuntu 26.04 LTS</os>
+    <kernel>7.0.0-42-generic</kernel>
+    <virtualization>xen</virtualization>
+    <cpus>4</cpus>
+    <memory-mib>7393</memory-mib>
+    <uptime>08:54:41 up 17 days, 12 min,  2 users,  load average: 0.14, 0.12, 0.09</uptime>
+    <collected>Sat, 14 Nov 2026 08:55:05 +0000</collected>
+    <window since="2026-11-11 08:54:41" days="3"/>
+  </system>
+  <summary status="critical" score="82.4" pass="28" warn="3" fail="3" notchecked="1"/>
+  <statistics>
+    <events source="journal (window) + dmesg ring buffer">
+      <event category="filesystem" count="4" first="2026-11-13T00:29:05" last="2026-11-13T00:30:08"/>
+      <event category="oom" count="3" first="2026-11-14T07:04:01" last="2026-11-14T07:16:01"/>
+      <event category="service_failure" count="6" first="2026-11-14T04:21:30" last="2026-11-14T07:16:01"/>
+    </events>
+    <oom-victims>
+      <process name="python3" kills="3"/>
+    </oom-victims>
+    <services>
+      <unit name="inventory-api.service" failures="3" restarts="3" last-result="oom-kill"/>
+      <unit name="labtimer-demo.service" failures="2" restarts="0" last-result="signal"/>
+    </services>
+    <boots total="1" unclean="0"/>
+    <resources>
+      <metric name="mem_available_pct" value="89.7"/>
+      <metric name="swap_used_pct" value="0.2"/>
+      <metric name="psi_memory_full_avg300" value="0.00"/>
+      <metric name="psi_io_full_avg300" value="0.00"/>
+      <metric name="psi_cpu_some_avg300" value="0.00"/>
+      <metric name="load_1_5_15" value="0.13 0.12 0.09"/>
+      <metric name="d_state_tasks" value="0"/>
+      <metric name="fd_used_pct" value="0.0"/>
+      <metric name="conntrack_used_pct" value="0.0"/>
+      <metric name="softnet_drops" value="0"/>
+      <metric name="listen_overflows" value="1781"/>
+      <filesystem mount="/" used-pct="50"/>
+      <filesystem mount="/boot" used-pct="11"/>
+    </resources>
+    <history source="sar" interval-seconds="579">
+      <peak metric="%commit" max="31.24" at="2026-11-14 04:20:00" device=""/>
+      <peak metric="%iowait" max="1.08" at="2026-11-12 00:20:21" device=""/>
+      <peak metric="%memused" max="27.35" at="2026-11-12 01:00:21" device=""/>
+      <peak metric="%steal" max="0.34" at="2026-11-12 01:00:21" device=""/>
+      <peak metric="%util" max="11.07" at="2026-11-12 00:20:21" device="ubuntu--vg-ubuntu--lv"/>
+      <peak metric="await" max="47.68" at="2026-11-11 09:50:21" device="xvda"/>
+      <peak metric="blocked" max="1" at="2026-11-11 09:00:21" device=""/>
+      <peak metric="ldavg-1" max="2.15" at="2026-11-12 00:10:30" device=""/>
+      <peak metric="majflt/s" max="4.99" at="2026-11-12 03:50:11" device=""/>
+      <peak metric="pswpout/s" max="224.91" at="2026-11-14 07:00:21" device=""/>
+      <peak metric="runq-sz" max="3" at="2026-11-12 00:10:30" device=""/>
+    </history>
+  </statistics>
+  <checks>
+    <check id="STAB-01" severity="critical" category="stability" result="pass">
+      <title>No kernel panic / BUG / Oops</title>
+      <observed>0 events (last )</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt</evidence>
+      <advice>Get the call trace; enable kdump if not already.</advice>
+    </check>
+    <check id="STAB-02" severity="critical" category="stability" result="pass">
+      <title>Previous boots ended with a clean shutdown</title>
+      <observed>0 unclean of 0 previous boots</observed>
+      <expected>0 unclean</expected>
+      <evidence>02-boots.txt</evidence>
+      <advice>Unclean end = crash, power loss, hypervisor or hardware watchdog reset.</advice>
+    </check>
+    <check id="STAB-03" severity="high" category="stability" result="fail">
+      <title>No OOM-killer activity</title>
+      <observed>3 processes killed (last 2026-11-14T07:16:01)</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt, 06-memory.txt</evidence>
+      <advice>Check whether CONSTRAINT_MEMCG (service limit) or global OOM.</advice>
+    </check>
+    <check id="STAB-04" severity="high" category="stability" result="pass">
+      <title>No hung tasks (blocked &gt; 120 s)</title>
+      <observed>0 (last )</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt</evidence>
+      <advice>Usually storage / NFS latency; read the blocked task stack.</advice>
+    </check>
+    <check id="STAB-05" severity="high" category="stability" result="pass">
+      <title>No soft lockups / RCU stalls</title>
+      <observed>0 (last )</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt</evidence>
+      <advice>On VMs check CPU steal / host overcommit.</advice>
+    </check>
+    <check id="STAB-06" severity="high" category="services" result="fail">
+      <title>Services not crashing or restart-looping</title>
+      <observed>0 failed units now; 5 unit failures, 3 automatic restarts in window; 6 failure log lines</observed>
+      <expected>0</expected>
+      <evidence>12-services.txt</evidence>
+      <advice>See the per-unit table in statistics.</advice>
+    </check>
+    <check id="SVC-01" severity="critical" category="services" result="notchecked">
+      <title>Expected service ports are listening at collection time</title>
+      <observed>no ports given</observed>
+      <expected>pass collect.sh -l PORTS</expected>
+      <evidence>09-network.txt</evidence>
+    </check>
+    <check id="STAB-07" severity="medium" category="services" result="pass">
+      <title>No application core dumps</title>
+      <observed>0</observed>
+      <expected>0</expected>
+      <evidence>12-services.txt</evidence>
+    </check>
+    <check id="HW-01" severity="critical" category="hardware" result="pass">
+      <title>No machine-check / EDAC / hardware errors</title>
+      <observed>0</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt</evidence>
+      <advice>Escalate to hardware vendor / hypervisor team.</advice>
+    </check>
+    <check id="HW-02" severity="critical" category="storage" result="pass">
+      <title>No block-device I/O errors</title>
+      <observed>0 (last )</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt, 08-storage.txt</evidence>
+    </check>
+    <check id="HW-03" severity="low" category="kernel" result="pass">
+      <title>Kernel not tainted</title>
+      <observed>tainted=0</observed>
+      <expected>0</expected>
+      <evidence>01-system.txt</evidence>
+      <advice>Non-zero: proprietary/out-of-tree module or prior warning; affects vendor support.</advice>
+    </check>
+    <check id="HW-04" severity="high" category="virtualization" result="pass">
+      <title>CPU steal time low (hypervisor contention)</title>
+      <observed>max 0.34% at 2026-11-12 01:00:21</observed>
+      <expected>&lt; 5%</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="STO-01" severity="critical" category="storage" result="fail">
+      <title>No filesystem errors / read-only remounts</title>
+      <observed>4 events; 0 read-only mounts now</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt, 08-storage.txt</evidence>
+    </check>
+    <check id="STO-02" severity="high" category="storage" result="pass">
+      <title>Filesystem space usage below 85%</title>
+      <observed>max 50% on /</observed>
+      <expected>&lt; 85%</expected>
+      <evidence>08-storage.txt</evidence>
+    </check>
+    <check id="STO-03" severity="high" category="storage" result="pass">
+      <title>Inode usage below 85%</title>
+      <observed>max 16% on /</observed>
+      <expected>&lt; 85%</expected>
+      <evidence>08-storage.txt</evidence>
+    </check>
+    <check id="STO-04" severity="high" category="storage" result="pass">
+      <title>No NFS server-not-responding events</title>
+      <observed>0</observed>
+      <expected>0</expected>
+      <evidence>00-signals.txt</evidence>
+    </check>
+    <check id="STO-05" severity="medium" category="storage" result="pass">
+      <title>Disk latency (await) acceptable</title>
+      <observed>max 47.68 ms at 2026-11-11 09:50:21</observed>
+      <expected>&lt; 50 ms</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="STO-06" severity="medium" category="storage" result="pass">
+      <title>CPU iowait acceptable</title>
+      <observed>max 1.08% at 2026-11-12 00:20:21</observed>
+      <expected>&lt; 10%</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="MEM-01" severity="high" category="memory" result="pass">
+      <title>Available memory above 10%</title>
+      <observed>89.7% available (6628 MiB)</observed>
+      <expected>&gt; 10%</expected>
+      <evidence>06-memory.txt</evidence>
+    </check>
+    <check id="MEM-02" severity="medium" category="memory" result="pass">
+      <title>Swap usage below 50%</title>
+      <observed>0.2% of 4095 MiB</observed>
+      <expected>&lt; 50%</expected>
+      <evidence>06-memory.txt</evidence>
+      <advice>Swap can hide a leak until a limit (MemorySwapMax, no swap) removes the cushion.</advice>
+    </check>
+    <check id="MEM-03" severity="medium" category="memory" result="pass">
+      <title>Memory pressure (PSI full avg300) low</title>
+      <observed>0.00</observed>
+      <expected>&lt; 1</expected>
+      <evidence>06-memory.txt</evidence>
+    </check>
+    <check id="MEM-04" severity="medium" category="memory" result="warn">
+      <title>No swap storms in history</title>
+      <observed>max pswpout/s 224.91 at 2026-11-14 07:00:21; max %memused 27.35; max majflt/s 4.99</observed>
+      <expected>pswpout/s &lt; 100</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="CPU-01" severity="medium" category="cpu" result="pass">
+      <title>Load average (15 min) within CPU count</title>
+      <observed>load 0.13 on 4 CPUs</observed>
+      <expected>&lt; 4</expected>
+      <evidence>07-cpu-procs.txt</evidence>
+    </check>
+    <check id="CPU-02" severity="medium" category="cpu" result="pass">
+      <title>No load spikes in history</title>
+      <observed>max ldavg-1 2.15 at 2026-11-12 00:10:30; max blocked 1</observed>
+      <expected>&lt; 8</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="CPU-03" severity="medium" category="cpu" result="pass">
+      <title>No processes stuck in D state now</title>
+      <observed>0</observed>
+      <expected>0</expected>
+      <evidence>07-cpu-procs.txt</evidence>
+    </check>
+    <check id="LIM-01" severity="high" category="limits" result="pass">
+      <title>File descriptors / allocation limits not exhausted</title>
+      <observed>fd 0.0% used; 0 &apos;too many open files&apos; / allocation-failure events</observed>
+      <expected>&lt; 70%, 0 events</expected>
+      <evidence>07-cpu-procs.txt, 00-signals.txt</evidence>
+    </check>
+    <check id="NET-01" severity="high" category="network" result="pass">
+      <title>Network stack healthy (conntrack, link, SYN flood)</title>
+      <observed>conntrack 0.0%; 0 network events (last )</observed>
+      <expected>&lt; 70%, 0 events</expected>
+      <evidence>09-network.txt, 00-signals.txt</evidence>
+    </check>
+    <check id="NET-02" severity="medium" category="network" result="pass">
+      <title>No NIC error/drop counters</title>
+      <observed>0 non-zero error counters</observed>
+      <expected>0</expected>
+      <evidence>09-network.txt</evidence>
+    </check>
+    <check id="NET-03" severity="low" category="network" result="pass">
+      <title>No softnet backlog drops</title>
+      <observed>0</observed>
+      <expected>0</expected>
+      <evidence>09-network.txt</evidence>
+    </check>
+    <check id="NET-04" severity="low" category="network" result="warn">
+      <title>No listen-queue overflows (since boot)</title>
+      <observed>ListenOverflows=1781 ListenDrops=1781</observed>
+      <expected>0</expected>
+      <evidence>09-network.txt</evidence>
+      <advice>Cumulative since boot; correlate with outage times before blaming.</advice>
+    </check>
+    <check id="OBS-01" severity="high" category="observability" result="pass">
+      <title>Historical performance data (sysstat) available</title>
+      <observed>yes, interval 579s</observed>
+      <expected>yes</expected>
+      <evidence>10-sar.txt</evidence>
+      <advice>Install/enable sysstat; 1-minute interval for intermittent issues.</advice>
+    </check>
+    <check id="OBS-02" severity="low" category="observability" result="warn">
+      <title>sar sampling interval short enough for short outages</title>
+      <observed>579s</observed>
+      <expected>&lt;= 300 s (60 s ideal)</expected>
+      <evidence>10-sar.txt</evidence>
+    </check>
+    <check id="OBS-03" severity="medium" category="observability" result="pass">
+      <title>kdump ready to capture a kernel crash</title>
+      <observed>crash kernel loaded=1; crashkernel= on cmdline: 1; vmcores present: 0</observed>
+      <expected>loaded=1</expected>
+      <evidence>13-kdump.txt</evidence>
+    </check>
+    <check id="OBS-04" severity="medium" category="observability" result="pass">
+      <title>Journal is persistent across reboots</title>
+      <observed>persistent</observed>
+      <expected>persistent</expected>
+      <evidence>04-journal-disk-usage.txt</evidence>
+      <advice>Without it, logs from before a crash are lost.</advice>
+    </check>
+    <check id="OBS-05" severity="low" category="observability" result="pass">
+      <title>Clock synchronised (needed to correlate events)</title>
+      <observed>synchronized</observed>
+      <expected>synchronized</expected>
+      <evidence>01-system.txt</evidence>
+    </check>
+  </checks>
+</rca-phase1-report>

@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<?xml-stylesheet type="text/xsl" href="phase2.xsl"?>
+<!-- Phase 2 skeleton. Replace every {{...}}; repeat elements as needed; delete nothing
+     the schema requires. Validate against phase2.xsd (see SKILL.md).
+     Evidence file paths are relative to the extracted bundle directory; line is "N", "N-M" or "N,M". -->
+<rca-phase2-analysis version="1.0" generated="{{ISO-8601 UTC}}" redacted="{{true|false}}">
+  <engagement>
+    <host>{{hostname or HOST_n token}}</host>
+    <client-report>{{symptom as the client described it}}</client-report>
+    <analyst>{{name}}</analyst>
+    <analysis-model>{{model used, e.g. claude-opus-5-5 or qwen3-coder:30b (local)}}</analysis-model>
+    <phase1-ref file="phase1-report.xml" status="{{phase1 summary status}}" score="{{phase1 score}}"/>
+  </engagement>
+
+  <executive-summary>{{3-5 sentences for a non-technical reader}}</executive-summary>
+
+  <incidents>
+    <incident id="INC-1" start="{{ISO time}}" end="{{ISO time}}" source="{{client monitor / log}}">
+      <symptom>{{what was unavailable}}</symptom>
+    </incident>
+  </incidents>
+
+  <!-- one domain element per area examined; status ok|warn|critical|unknown -->
+  <assessment overall="{{healthy|attention|degraded|critical}}" recurrence-risk="{{critical|high|medium|low|info}}">
+    <domain name="memory" status="{{...}}">{{one-line assessment}}</domain>
+    <domain name="storage" status="{{...}}">{{...}}</domain>
+  </assessment>
+
+  <root-cause confidence="{{confirmed|probable|hypothesis|unknown}}">
+    <summary>{{one sentence}}</summary>
+    <mechanism>
+      <step>{{step 1}}</step>
+      <step>{{step 2}}</step>
+    </mechanism>
+    <trigger>{{what sets it off}}</trigger>
+    <why-intermittent>{{why it comes and goes}}</why-intermittent>
+    <why-now>{{what changed, if known}}</why-now>
+    <contributing-factor>{{...}}</contributing-factor>
+    <confirm-by>{{only when not confirmed: what evidence would confirm it}}</confirm-by>
+    <!-- optional, repeatable: when parts of the chain differ in confidence -->
+    <confidence-detail confidence="confirmed">{{e.g. the service was OOM-killed at every incident}}</confidence-detail>
+  </root-cause>
+
+  <findings>
+    <finding id="F-1" severity="{{...}}" confidence="{{...}}" domain="{{...}}" related-checks="{{STAB-03 MEM-02}}" incidents="INC-1">
+      <title>{{...}}</title>
+      <description>{{...}}</description>
+      <evidence file="{{bundle file}}" line="{{n}}" timestamp="{{ISO time}}">{{exact excerpt}}</evidence>
+    </finding>
+  </findings>
+
+  <timeline>
+    <event time="{{ISO time}}" source="{{file}}" incident="INC-1">{{what happened}}</event>
+  </timeline>
+
+  <ruled-out>
+    <hypothesis name="{{e.g. disk I/O saturation}}" domain="storage">
+      <reason>{{why not}}</reason>
+      <evidence file="{{...}}" timestamp="{{...}}">{{...}}</evidence>
+    </hypothesis>
+  </ruled-out>
+
+  <!-- verdict for EVERY Phase 1 check that is fail or warn; repeat a check with subject="..." when it covers several things with different verdicts -->
+  <phase1-review>
+    <check id="{{STAB-03}}" subject="{{optional: unit / mount / process}}" verdict="{{root-cause|contributing|symptom|unrelated|noise|needs-action}}">{{why}}</check>
+  </phase1-review>
+
+  <recommendations>
+    <recommendation id="R-1" priority="{{immediate|short-term|long-term}}" type="{{mitigation|fix|prevention|observability}}" status="proposed" addresses="F-1">
+      <action>{{...}}</action>
+      <command>{{exact command(s)}}</command>
+      <risk>{{...}}</risk>
+      <downtime>{{none / seconds / reboot}}</downtime>
+      <rollback>{{exact rollback}}</rollback>
+      <owner>{{sysadmin / app team / hypervisor team}}</owner>
+    </recommendation>
+  </recommendations>
+
+  <validation status="pending">
+    <criterion>{{measurable, e.g. no OOM kill and restart counter flat for 24 h}}</criterion>
+  </validation>
+
+  <actions-on-host access="{{offline-bundle|ssh-read-only|ssh-with-changes}}">
+    <command read-only="true" time="{{ISO time}}">{{command run on the target}}</command>
+    <cleanup>{{what was removed from the host}}</cleanup>
+  </actions-on-host>
+</rca-phase2-analysis>

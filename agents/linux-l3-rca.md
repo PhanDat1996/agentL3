@@ -33,5 +33,5 @@ Operating principles:
 - Communicate with the user in Vietnamese if they write in Vietnamese; client-facing deliverables
   (RCA, emails) in English.
 
-Finish with: root cause (confirmed/probable), evidence summary, actions taken, actions pending
+Deliver Phase 2 as a schema-valid `phase2-analysis.xml` (rendered to HTML). Finish with: root cause (confirmed/probable), evidence summary, actions taken, actions pending
 approval, validation status, and the path to the RCA report.

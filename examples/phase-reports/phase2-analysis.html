@@ -1,0 +1,458 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RCA — damon</title>
+<style>
+:root{--bg:#f7f7f5;--card:#fff;--fg:#1d1d1b;--mute:#6b6b66;--line:#e3e2dc;--ok:#2f7d4f;--warn:#a86a00;--crit:#b3261e;--unk:#77756d;--chip:#f0efe9}
+@media (prefers-color-scheme:dark){:root{--bg:#161615;--card:#1f1f1d;--fg:#ecebe6;--mute:#a09e96;--line:#34332f;--ok:#5fbf86;--warn:#e0a53a;--crit:#ff7a6e;--unk:#9a988f;--chip:#2a2a27}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 -apple-system,Segoe UI,Roboto,sans-serif}
+main{max-width:1100px;margin:0 auto;padding:24px 16px}h1{font-size:22px;margin:0 0 4px}h2{font-size:16px;margin:30px 0 10px}h3{font-size:14px;margin:0 0 4px}
+.mute{color:var(--mute)}.card{background:var(--card);border:1px solid var(--line);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px}
+table{width:100%;border-collapse:collapse;background:var(--card);border:1px solid var(--line)}th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--mute)}.wrap{overflow-x:auto}
+.chip{font-size:12px;font-weight:650;padding:2px 8px;border-radius:99px;background:var(--chip);white-space:nowrap}
+.ok,.healthy,.passed,.low,.info{color:var(--ok)}.warn,.attention,.medium,.probable,.pending{color:var(--warn)}
+.critical,.degraded,.high,.failed{color:var(--crit)}.unknown,.hypothesis{color:var(--unk)}.confirmed{color:var(--ok)}
+pre,code,.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12.5px}pre{white-space:pre-wrap;margin:4px 0;padding:6px 8px;background:var(--chip);border-radius:6px}
+ol{margin:4px 0 0 18px;padding:0}
+</style>
+</head>
+<body><main><h1>Root Cause Analysis — damon</h1>
+<div class="mute">Phase 2 deep analysis · L3 Linux support (offline bundle review, bundle rca-damon-20261114-085441) · claude-opus-5-5 · generated 2026-11-14T08:58:24Z
+ · Phase 1: critical (82.4%)
+ </div>
+<div class="grid" style="margin-top:16px">
+<div class="card">
+<div class="mute">Overall</div>
+<div style="font-size:22px;font-weight:650" class="degraded">degraded</div>
+</div>
+<div class="card">
+<div class="mute">Root cause</div>
+<div style="font-size:22px;font-weight:650" class="probable">probable</div>
+</div>
+<div class="card">
+<div class="mute">Recurrence risk</div>
+<div style="font-size:22px;font-weight:650" class="high">high</div>
+</div>
+<div class="card">
+<div class="mute">Validation</div>
+<div style="font-size:22px;font-weight:650" class="pending">pending</div>
+</div>
+</div>
+<h2>Executive summary</h2>
+<div class="card">The server itself stayed up; only the Inventory API process died. Each outage started at the exact second the Linux kernel killed the API because it hit its configured memory ceiling (320 MiB), and ended when systemd restarted it about 45 seconds later, which is why it "came back by itself". The memory growth is driven by the scheduled job that calls the API's /report endpoint every 2 minutes: each call appears to leave roughly 110 MB allocated, so the third call after every restart pushed the service over its limit. The problem became visible at 06:58 UTC, when the service was reconfigured and restarted without access to swap; before that the same growth was silently pushed to swap (684 MB). A third, unreported outage occurred at 07:16 UTC, and at collection time (08:55 UTC) the API had been stopped manually and was not listening on port 8088.</div>
+<div class="card">
+<h3>Client report</h3>Inventory API (HTTP port 8088, /health) intermittently unreachable on 2026-11-14; external monitor saw it down 07:04:03-07:04:48 UTC and 07:10:03-07:10:48 UTC; it recovered by itself. Ubuntu VM.</div>
+<h2>Root cause</h2>
+<div class="card">
+<b>inventory-api.service was killed by the cgroup OOM killer at both reported outage times (confirmed) because its memory grows by about 110 MB per /report request and, after a 06:58 reconfiguration removed swap from the unit (MemoryMax 320 MiB, swap limit 0), the third /report call after each start exceeded the limit (mechanism probable: inferred from timing and systemd accounting, app source and unit file not in the bundle).</b><ol>
+<li>06:41:47 inventory-api.service is started for the first time in the log window; from 06:42:01 a root cron job calls curl http://127.0.0.1:8088/report every 2 minutes.</li>
+<li>06:41-06:58: each /report call leaves memory allocated; the unit hits its 320 MiB memory limit and the excess is pushed to swap (systemd: 320M memory peak, 684.3M swap peak after 9 calls, about 110 MB per call; sar shows pswpout 62-225/s in the same windows).</li>
+<li>06:58:23 a daemon-reload plus restart of the unit is performed from an interactive session; from then on the kernel reports the cgroup with memory limit 327680 kB and swap limit 0 kB, so the overflow can no longer go to swap.</li>
+<li>The 1st and 2nd /report calls after a start fit under 320 MiB; the 3rd call (07:04:01, 07:10:01, 07:16:01) triggers an anonymous page fault in a worker thread that cannot be charged, and the memcg OOM killer kills python3 (anon-rss about 327 MB) within 0.1 s of the cron call.</li>
+<li>systemd marks the unit failed (result oom-kill) and restarts it after about 45 s (Restart= with a ~45 s RestartSec, inferred); the API is unreachable for exactly that gap, matching the monitor windows 07:04:03-07:04:48 and 07:10:03-07:10:48.</li>
+</ol>
+<p><b>Trigger:</b>Root cron job curl -s -m 60 http://127.0.0.1:8088/report every 2 minutes (even minutes); the 3rd call after each (re)start pushes the cgroup over its 320 MiB limit.<br><b>Why intermittent:</b>The process restarts with a clean heap after each kill, so it takes 3 /report calls (about 6 minutes) to refill to the limit; this produces a regular 6-minute kill / 45-second outage cycle, which looks intermittent from the outside.<br><b>Why now:</b>The service and the /report cron job first appear on 2026-11-14 at 06:41-06:42 (no trace in syslog.1). Until 06:58:23 swap hid the growth; the reconfiguration and restart at 06:58:23 removed the swap allowance (swap limit 0 kB in every OOM report afterwards), turning slow swapping into hard OOM kills.<br><b>To confirm:</b>(1) systemctl cat inventory-api.service (and drop-ins) to confirm MemoryMax=320M, MemorySwapMax=0, Restart/RestartSec=45s and what changed at 06:58:23; (2) on a test instance, call /report 3 times and watch systemctl show -p MemoryCurrent inventory-api grow by about 110 MB per call; (3) app team review of the /report handler (tracemalloc) for objects/buffers retained after the response.</p>
+<b>Contributing factors</b><ul>
+<li>Hard memory cap with no swap and no MemoryHigh soft limit: the first sign of pressure is a SIGKILL rather than throttling or an alert.</li>
+<li>Restart delay of about 45 s defines the outage length; a shorter RestartSec would shrink each outage to a few seconds (but would not fix the leak).</li>
+<li>No change record: unit changes at 06:41:47 and 06:58:23 were done via systemctl daemon-reload in interactive sessions without a load test of /report under the new limit.</li>
+</ul>
+</div>
+<h2>Health assessment</h2>
+<div class="wrap"><table>
+<tr>
+<th>Domain</th>
+<th>Status</th>
+<th>Assessment</th>
+</tr>
+<tr>
+<td>hardware</td>
+<td><span class="chip ok">ok</span></td>
+<td>No MCE/EDAC/hardware errors; EDAC and NMI hits in 00-signals are boot banners from 2026-10-28.</td>
+</tr>
+<tr>
+<td>virtualization</td>
+<td><span class="chip ok">ok</span></td>
+<td>Xen HVM domU; %steal at most 0.13% around the incidents, no clocksource or balloon messages.</td>
+</tr>
+<tr>
+<td>kernel</td>
+<td><span class="chip ok">ok</span></td>
+<td>Single boot since 2026-10-28, untainted, no panic/hung task/soft lockup; OOM kills are memcg-scoped and behaved as designed.</td>
+</tr>
+<tr>
+<td>cpu</td>
+<td><span class="chip ok">ok</span></td>
+<td>ldavg-1 at most 0.24 and runq-sz at most 1 in the 06:50-07:20 sar rows.</td>
+</tr>
+<tr>
+<td>memory</td>
+<td><span class="chip warn">warn</span></td>
+<td>Host memory healthy (%memused at most 7.86%), but inventory-api.service is capped at 320 MiB with swap 0 and is OOM-killed every third /report call.</td>
+</tr>
+<tr>
+<td>storage</td>
+<td><span class="chip ok">ok</span></td>
+<td>await at most 3.08 ms, %util under 1% around the incidents; ext4 errors are deliberate test injections on loop0 (2026-11-13).</td>
+</tr>
+<tr>
+<td>network</td>
+<td><span class="chip ok">ok</span></td>
+<td>No NIC errors, conntrack 0%; steady 1.00 rxdrop/s background on enX3 all day; ListenOverflows cumulative since boot and not tied to port 8088.</td>
+</tr>
+<tr>
+<td>services</td>
+<td><span class="chip critical">critical</span></td>
+<td>inventory-api.service OOM-killed 3 times (07:04, 07:10, 07:16), then stopped manually at 07:17:59 and not running at collection time (port 8088 not listening).</td>
+</tr>
+<tr>
+<td>application</td>
+<td><span class="chip critical">critical</span></td>
+<td>Memory retained per /report request (about 110 MB per call, inferred) with no release; app source not available.</td>
+</tr>
+<tr>
+<td>observability</td>
+<td><span class="chip warn">warn</span></td>
+<td>sar interval about 10 min (too coarse for 45 s outages); dmesg -T is 2m48s behind wall clock; client monitor missed INC-3.</td>
+</tr>
+</table></div>
+<h2>Incidents</h2>
+<div class="wrap"><table>
+<tr>
+<th>ID</th>
+<th>Start</th>
+<th>End</th>
+<th>Source</th>
+<th>Symptom</th>
+</tr>
+<tr>
+<td>INC-1</td>
+<td class="mono">2026-11-14T07:04:03Z</td>
+<td class="mono">2026-11-14T07:04:48Z</td>
+<td>client external monitor</td>
+<td>Inventory API /health on port 8088 unreachable (45 s)</td>
+</tr>
+<tr>
+<td>INC-2</td>
+<td class="mono">2026-11-14T07:10:03Z</td>
+<td class="mono">2026-11-14T07:10:48Z</td>
+<td>client external monitor</td>
+<td>Inventory API /health on port 8088 unreachable (45 s)</td>
+</tr>
+<tr>
+<td>INC-3</td>
+<td class="mono">2026-11-14T07:16:01Z</td>
+<td class="mono">2026-11-14T07:16:47Z</td>
+<td>journal/syslog (not in client report)</td>
+<td>Inventory API process OOM-killed and down until systemd restart; same signature as INC-1/INC-2 but not reported by the client's monitor</td>
+</tr>
+</table></div>
+<h2>Findings</h2>
+<div class="card">
+<h3>F-1 · inventory-api.service OOM-killed by its own memory cgroup at every outage start</h3>
+<span class="chip critical">critical</span> <span class="chip confirmed">confirmed</span> <span class="chip">services</span><span class="mute"> · Phase 1: STAB-03 STAB-06</span><p>Each outage begins with a CONSTRAINT_MEMCG OOM kill of python3 in /system.slice/inventory-api.service (memory usage = limit = 327680 kB, swap limit 0 kB) and ends when systemd restarts the unit about 45 s later. Kill-to-restart windows (07:04:01.6-07:04:46.7, 07:10:01.9-07:10:47.0) match the monitor windows to within 2 s. Host-wide memory was never short; this is a per-service limit.</p>
+<div class="mute mono">03-journal-kernel.txt:336-337 @ 2026-11-14T07:04:01Z</div>
+<pre>memory: usage 327680kB, limit 327680kB, failcnt 24 / swap: usage 0kB, limit 0kB, failcnt 0</pre>
+<div class="mute mono">03-journal-kernel.txt:415 @ 2026-11-14T07:04:01Z</div>
+<pre>Memory cgroup out of memory: Killed process 262621 (python3) total-vm:445360kB, anon-rss:326768kB</pre>
+<div class="mute mono">files/var/log/syslog:6709-6712 @ 2026-11-14T07:04:01Z</div>
+<pre>inventory-api.service: Failed with result 'oom-kill'. ... 07:04:46.73 Scheduled restart job, restart counter is at 1. / Started inventory-api.service</pre>
+<div class="mute mono">03-journal-kernel.txt:529 @ 2026-11-14T07:10:01Z</div>
+<pre>Memory cgroup out of memory: Killed process 262718 (python3) total-vm:445360kB, anon-rss:326780kB</pre>
+<div class="mute mono">files/var/log/syslog:6839-6844 @ 2026-11-14T07:10:01Z</div>
+<pre>Failed with result 'oom-kill'. ... 07:10:46.98 Scheduled restart job, restart counter is at 2. / Started inventory-api.service</pre>
+<div class="mute mono">03-journal-kernel.txt:655 @ 2026-11-14T07:16:01Z</div>
+<pre>Memory cgroup out of memory: Killed process 262875 (python3) total-vm:445360kB, anon-rss:326788kB</pre>
+</div>
+<div class="card">
+<h3>F-2 · Memory retained per /report request (about 110 MB per call); 3rd call after each start hits the limit</h3>
+<span class="chip high">high</span> <span class="chip probable">probable</span> <span class="chip">application</span><span class="mute"> · Phase 1: STAB-03</span><p>A root cron job calls /report every 2 minutes from 06:42:01. Every OOM kill happens about 0.1 s after the 3rd /report call since the last (re)start, and never after the 1st or 2nd. The killing allocation is an anonymous page fault in a short-lived worker thread (comm "Thread-NN (proc...", RIP in a memset-style rep stosb), consistent with a large buffer being allocated per request. Before swap was removed the unit reached 320M RAM + 684.3M swap after 9 calls (about 1004 MB / 9, about 110 MB per call). Mechanism inferred from timing and accounting; app source not available.</p>
+<div class="mute mono">files/var/log/syslog:6587,6591,6592 @ 2026-11-14T07:00:01Z</div>
+<pre>07:00:01, 07:02:01, 07:04:01.479 CRON (root) CMD (curl -s -m 60 http://127.0.0.1:8088/report ...)</pre>
+<div class="mute mono">files/var/log/syslog:6593 @ 2026-11-14T07:04:01.575Z</div>
+<pre>Thread-59 (proc invoked oom-killer: gfp_mask=0xcc0(GFP_KERNEL), order=0, oom_score_adj=0</pre>
+<div class="mute mono">files/var/log/syslog:6714,6715,6721 @ 2026-11-14T07:10:01.787Z</div>
+<pre>07:06:01, 07:08:01, 07:10:01.787 CRON curl .../report; OOM at 07:10:01.874</pre>
+<div class="mute mono">files/var/log/syslog:6848,6861,6884-6885 @ 2026-11-14T07:16:01.840Z</div>
+<pre>07:12:01, 07:14:01, 07:16:01.840 CRON curl .../report; 07:16:01.939 Thread-21 (proc invoked oom-killer</pre>
+<div class="mute mono">files/var/log/syslog:6583 @ 2026-11-14T06:58:23Z</div>
+<pre>inventory-api.service: Consumed 4.807s CPU time over 16min 36.502s wall clock time, 320M memory peak, 684.3M memory swap peak.</pre>
+</div>
+<div class="card">
+<h3>F-3 · Unit reconfigured at 06:58:23 removing swap headroom (why now)</h3>
+<span class="chip high">high</span> <span class="chip probable">probable</span> <span class="chip">services</span><span class="mute"> · Phase 1: MEM-04</span><p>The first run (06:41:47-06:58:23) swapped heavily but stayed up. At 06:58:23 a systemctl daemon-reload from an interactive session was followed by a stop/start of inventory-api; every later OOM report shows swap limit 0 kB. The sar swap storm flagged by Phase 1 (pswpout 224.91/s) is this first run being pushed to swap. Exact directive (likely MemorySwapMax=0) cannot be seen without the unit file.</p>
+<div class="mute mono">files/var/log/syslog:6575-6584 @ 2026-11-14T06:58:23Z</div>
+<pre>Reload requested from client PID 262558 ('systemctl') (unit session-1549.scope)... Stopping inventory-api.service ... Started inventory-api.service</pre>
+<div class="mute mono">10-sar.txt:4713 @ 2026-11-14T07:00:21Z</div>
+<pre>pswpin/s 0.52 pswpout/s 224.91 (06:50-07:00 interval); 0.00 from the 07:10:01 row on</pre>
+<div class="mute mono">03-journal-kernel.txt:337 @ 2026-11-14T07:04:01Z</div>
+<pre>swap: usage 0kB, limit 0kB, failcnt 0</pre>
+</div>
+<div class="card">
+<h3>F-4 · Unreported 3rd outage at 07:16 and API stopped since 07:17:59 (not running at collection)</h3>
+<span class="chip high">high</span> <span class="chip confirmed">confirmed</span> <span class="chip">services</span><span class="mute"> · Phase 1: STAB-06</span><p>A third OOM kill and 46 s outage occurred at 07:16:01-07:16:47 but is absent from the client's monitor report. At 07:17:59 the unit was stopped from an interactive session (daemon-reload + stop) and the /report and dd cron entries stop after 07:16 (/etc/cron.d modified 07:17). At collection (08:55) inventory-api is not in the running units and nothing listens on 8088, so the API is currently down unless this was intended.</p>
+<div class="mute mono">files/var/log/syslog:7000-7004 @ 2026-11-14T07:16:01Z</div>
+<pre>Main process exited, code=killed, status=9/KILL ... 07:16:47 Scheduled restart job, restart counter is at 3.</pre>
+<div class="mute mono">files/var/log/syslog:7022-7024 @ 2026-11-14T07:17:59Z</div>
+<pre>Stopping inventory-api.service - Inventory API... / Stopped inventory-api.service - Inventory API.</pre>
+<div class="mute mono">09-network.txt:74-88 @ 2026-11-14T08:55:05Z</div>
+<pre>ss -ltnup: listeners on 22, 53, 80, 34647 only; no :8088</pre>
+<div class="mute mono">12-services.txt:85-87 @ 2026-11-14T08:55:05Z</div>
+<pre>/etc/cron.d: drwxr-xr-x 2 root root 4096 Nov 14 07:17 .</pre>
+</div>
+<div class="card">
+<h3>F-5 · Monitoring too coarse for 45-second outages; dmesg -T drifts 2m48s</h3>
+<span class="chip low">low</span> <span class="chip confirmed">confirmed</span> <span class="chip">observability</span><span class="mute"> · Phase 1: OBS-02</span><p>sar samples every ~10 minutes, so no sar row falls inside any outage. dmesg -T shows the kills at 07:01:13/07:07:13/07:13:13 while the journal (wall clock, chrony-synchronised) shows 07:04:01/07:10:01/07:16:01; the dmesg times must not be used for correlation.</p>
+<div class="mute mono">03-dmesg-full.txt:2138 @ 2026-11-14T07:04:01Z</div>
+<pre>[Sat Nov 14 07:01:13 2026] oom-kill:constraint=CONSTRAINT_MEMCG,...,task=python3,pid=262621</pre>
+<div class="mute mono">phase1-report.xml @ 2026-11-14T08:55:06Z</div>
+<pre>history source="sar" interval-seconds="579"</pre>
+</div>
+<h2>Timeline</h2>
+<div class="wrap"><table>
+<tr>
+<th>Time</th>
+<th>Event</th>
+<th>Source</th>
+<th>Incident</th>
+</tr>
+<tr>
+<td class="mono">2026-11-14T06:41:47Z</td>
+<td>daemon-reload from an interactive session; first start of inventory-api.service in the log window ("Special user nobody configured" warning on line 6 of the unit).</td>
+<td class="mono">files/var/log/syslog:6547-6551</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T06:42:01Z</td>
+<td>Root cron starts calling curl http://127.0.0.1:8088/report every 2 minutes.</td>
+<td class="mono">files/var/log/syslog:6553</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T06:50:01Z</td>
+<td>%memused 7.86, kbcommit 1589080; pswpout 62/s in the 06:40-06:50 interval: service spilling into swap.</td>
+<td class="mono">10-sar.txt:4598</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T06:58:23Z</td>
+<td>daemon-reload + restart of inventory-api; previous run reported 320M memory peak, 684.3M swap peak. Swap limit is 0 from here on.</td>
+<td class="mono">files/var/log/syslog:6575-6584</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:00:21Z</td>
+<td>pswpout 224.91/s for 06:50-07:00 (Phase 1 MEM-04 peak).</td>
+<td class="mono">10-sar.txt:4713</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:04:01Z</td>
+<td>3rd /report call since restart at 07:04:01.479; memcg OOM kill of python3 pid 262621 at 07:04:01.576; unit failed (oom-kill).</td>
+<td class="mono">files/var/log/syslog:6592-6710</td>
+<td>INC-1</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:04:03Z</td>
+<td>Monitor sees /health unreachable.</td>
+<td class="mono">client monitor</td>
+<td>INC-1</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:04:46Z</td>
+<td>systemd restart (counter 1); monitor recovers 07:04:48.</td>
+<td class="mono">files/var/log/syslog:6711-6712</td>
+<td>INC-1</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:10:01Z</td>
+<td>3rd /report call since restart at 07:10:01.787; OOM kill of pid 262718 at 07:10:01.875.</td>
+<td class="mono">files/var/log/syslog:6721-6840</td>
+<td>INC-2</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:10:03Z</td>
+<td>Monitor sees /health unreachable.</td>
+<td class="mono">client monitor</td>
+<td>INC-2</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:10:46Z</td>
+<td>systemd restart (counter 2); monitor recovers 07:10:48.</td>
+<td class="mono">files/var/log/syslog:6843-6844</td>
+<td>INC-2</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:16:01Z</td>
+<td>3rd /report call since restart at 07:16:01.841; OOM kill of pid 262875 at 07:16:01.939 (not in client report).</td>
+<td class="mono">files/var/log/syslog:6884-7002</td>
+<td>INC-3</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:16:47Z</td>
+<td>systemd restart (counter 3).</td>
+<td class="mono">files/var/log/syslog:7003-7004</td>
+<td>INC-3</td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T07:17:59Z</td>
+<td>daemon-reload and stop of inventory-api from an interactive session; cron /report entries stop; /etc/cron.d modified 07:17.</td>
+<td class="mono">files/var/log/syslog:7015-7024</td>
+<td></td>
+</tr>
+<tr>
+<td class="mono">2026-11-14T08:55:05Z</td>
+<td>Collection: inventory-api not running, nothing listening on 8088.</td>
+<td class="mono">09-network.txt:74-88</td>
+<td></td>
+</tr>
+</table></div>
+<h2>Hypotheses ruled out</h2>
+<div class="wrap"><table>
+<tr>
+<th>Hypothesis</th>
+<th>Why not</th>
+</tr>
+<tr>
+<td>Host reboot, kernel crash or hang</td>
+<td>Only one boot (since 2026-10-28 08:41:47) covers the incidents; no panic, Oops, hung task or soft lockup; the journal is continuous through every outage.<div class="mute mono">02-boots.txt: 0 9ece6564bf474ad1ac5408cb1faadcdd Wed 2026-10-28 08:41:47 UTC Sat 2026-11-14 08:54:42 UTC</div>
+</td>
+</tr>
+<tr>
+<td>Host-wide memory exhaustion / global OOM</td>
+<td>All kills are CONSTRAINT_MEMCG limited to inventory-api.service; host %memused at most 7.86% and over 6.5 GB available around the incidents.<div class="mute mono">10-sar.txt2026-11-14T07:10:01Z: 07:00:21 kbavail 6680920 %memused 5.50; 07:10:01 kbavail 6717048 %memused 5.02</div>
+</td>
+</tr>
+<tr>
+<td>Disk I/O stall from the 5-minute dd cron job</td>
+<td>dd uses oflag=direct (no page cache, not charged to the service cgroup), runs at :00/:05 minutes; the 07:04 and 07:16 kills happened with no dd running; await at most 3.08 ms, no I/O errors.<div class="mute mono">10-sar.txt2026-11-14T07:00:21Z: xvda await 2.15 %util 0.50; ubuntu--vg-ubuntu--lv await 3.08 %util 0.84</div>
+</td>
+</tr>
+<tr>
+<td>CPU saturation or hypervisor steal</td>
+<td>Load and steal negligible; the API used under 1 s of CPU per run.<div class="mute mono">10-sar.txt2026-11-14T07:10:01Z: all %user 0.04 %system 0.15 %iowait 0.03 %steal 0.11 %idle 99.66</div>
+</td>
+</tr>
+<tr>
+<td>Network / listen-queue problem on port 8088</td>
+<td>No NIC errors, no conntrack pressure; the only SYN-flood message is from 2026-10-28 on 127.0.0.1:9100; the outage gaps coincide exactly with the process being dead, not with network events.<div class="mute mono">03-dmesg-full.txt2026-10-28T10:36:57Z: TCP: request_sock_TCP: Possible SYN flooding on port 127.0.0.1:9100. Sending cookies.</div>
+</td>
+</tr>
+<tr>
+<td>labtimer-demo.service failures</td>
+<td>Separate unit failing 2.5 h before the incidents with a permission error on its own log file; no interaction with inventory-api.<div class="mute mono">files/var/log/syslog2026-11-14T04:21:30Z: labtimer-job.sh: line 5: /var/tmp/labtimer.log: Permission denied / Main process exited, status=1/FAILURE</div>
+</td>
+</tr>
+</table></div>
+<h2>Phase 1 checks reviewed</h2>
+<div class="wrap"><table>
+<tr>
+<th>Check</th>
+<th>Verdict</th>
+<th>Note</th>
+</tr>
+<tr>
+<td class="mono">STAB-03</td>
+<td><span class="chip">root-cause</span></td>
+<td>The 3 OOM kills on 2026-11-14 (07:04:01, 07:10:01, 07:16:01) are the inventory-api outages (CONSTRAINT_MEMCG, inventory-api.service). The other OOM lines counted are lab oomdemo units in user.slice on 2026-10-28, outside the window and unrelated.</td>
+</tr>
+<tr>
+<td class="mono">STAB-06</td>
+<td><span class="chip">symptom</span></td>
+<td>inventory-api failures/restarts (3) are the outage itself, caused by STAB-03. The 2 labtimer-demo.service failures (04:21:30, 04:28:16) are a separate permission problem on /var/tmp/labtimer.log, unrelated to the outage but worth fixing.</td>
+</tr>
+<tr>
+<td class="mono">STO-01</td>
+<td><span class="chip">noise</span></td>
+<td>ext4 errors are deliberate test injections on a loop device ("trigger_test_error ... comm tee: lab test" / "round2") on 2026-11-13 00:29-00:30; root filesystem not affected, no read-only mounts now.</td>
+</tr>
+<tr>
+<td class="mono">MEM-04</td>
+<td><span class="chip">symptom</span></td>
+<td>The pswpout peak 224.91/s (06:50-07:00) is inventory-api spilling its per-request growth into swap before the 06:58:23 change removed swap; same leak, earlier stage. Not a host-wide swap storm.</td>
+</tr>
+<tr>
+<td class="mono">NET-04</td>
+<td><span class="chip">unrelated</span></td>
+<td>ListenOverflows/ListenDrops=1781 are cumulative since 2026-10-28; the only related kernel message is a SYN flood on 127.0.0.1:9100 on 2026-10-28. During the outages the 8088 listener did not exist at all (process dead), which gives connection refused, not overflows.</td>
+</tr>
+<tr>
+<td class="mono">OBS-02</td>
+<td><span class="chip">needs-action</span></td>
+<td>A ~10-minute sar interval cannot resolve 45-second outages; move to 1-minute sampling (R-6).</td>
+</tr>
+</table></div>
+<h2>Recommendations</h2>
+<div class="card">
+<h3>R-1 · Confirm whether the Inventory API is supposed to be down right now (stopped manually at 07:17:59, port 8088 not listening at 08:55) and capture the current unit definition before anything else changes.</h3>
+<span class="chip">immediate</span> <span class="chip">mitigation</span> <span class="chip">proposed</span><span class="mute"> · owner: sysadmin</span><pre>systemctl status inventory-api.service --no-pager; systemctl cat inventory-api.service; systemctl show inventory-api.service -p MemoryMax,MemoryHigh,MemorySwapMax,Restart,RestartUSec,User; ls -la /etc/systemd/system/inventory-api.service.d/ /etc/cron.d/; ss -ltnp 'sport = :8088'</pre>
+<div>
+<b>Risk:</b>None (read-only). · <b>Downtime:</b>none</div>
+<div>
+<b>Rollback:</b><span class="mono">Not applicable (read-only).</span>
+</div>
+</div>
+<div class="card">
+<h3>R-2 · If the API must run before the code fix: keep the 2-minute /report cron job disabled (it is the trigger) and start the service. If /report must run, call it no more than twice between planned restarts, or temporarily allow swap again via a drop-in (MemorySwapMax=512M) knowing it only delays the kill.</h3>
+<span class="chip">immediate</span> <span class="chip">mitigation</span> <span class="chip">proposed</span><span class="mute"> · owner: sysadmin + app team</span><pre>systemctl start inventory-api.service &amp;&amp; curl -fsS http://127.0.0.1:8088/health</pre>
+<div>
+<b>Risk:</b>Low. If /report is still called by another client, the OOM cycle returns after 3 calls (about 6 min at the old rate). · <b>Downtime:</b>none (service is currently stopped)</div>
+<div>
+<b>Rollback:</b><span class="mono">systemctl stop inventory-api.service</span>
+</div>
+</div>
+<div class="card">
+<h3>R-3 · App team: reproduce and fix memory retention in the /report handler (buffer or result cache that is never released, or per-request threads keeping references). Verify with tracemalloc / memory_profiler on a test instance.</h3>
+<span class="chip">short-term</span> <span class="chip">fix</span> <span class="chip">proposed</span><span class="mute"> · owner: app team</span><pre>On a test host: for i in 1 2 3; do curl -s -m 60 http://127.0.0.1:8088/report &gt;/dev/null; systemctl show -p MemoryCurrent inventory-api.service; done</pre>
+<div>
+<b>Risk:</b>Test environment only; on production this reproduction would cause an OOM kill on the 3rd call. · <b>Downtime:</b>none on production; deploy of the fix needs one service restart (seconds)</div>
+<div>
+<b>Rollback:</b><span class="mono">Redeploy the previous application version.</span>
+</div>
+</div>
+<div class="card">
+<h3>R-4 · Harden the unit after the fix: keep MemoryMax as a guardrail, add MemoryHigh below it so pressure throttles and is visible before a kill, and shorten RestartSec so any future kill costs seconds, not 45 s. Size MemoryMax from a measured peak under real /report load.</h3>
+<span class="chip">short-term</span> <span class="chip">prevention</span> <span class="chip">proposed</span><span class="mute"> · owner: sysadmin</span><pre>mkdir -p /etc/systemd/system/inventory-api.service.d &amp;&amp; printf '[Service]\nMemoryHigh=280M\nRestartSec=5s\n' &gt; /etc/systemd/system/inventory-api.service.d/50-rca-hardening.conf &amp;&amp; systemctl daemon-reload &amp;&amp; systemctl restart inventory-api.service</pre>
+<div>
+<b>Risk:</b>Low. MemoryHigh throttles (slows) the service near the limit; a restart is needed to apply. · <b>Downtime:</b>seconds (one restart)</div>
+<div>
+<b>Rollback:</b><span class="mono">rm /etc/systemd/system/inventory-api.service.d/50-rca-hardening.conf &amp;&amp; systemctl daemon-reload &amp;&amp; systemctl restart inventory-api.service</span>
+</div>
+</div>
+<div class="card">
+<h3>R-5 · Put unit file and cron changes under change control (the 06:41, 06:58 and 07:17 changes have no record); load-test memory limits before tightening them (removing swap converted slow degradation into hard outages).</h3>
+<span class="chip">short-term</span> <span class="chip">prevention</span> <span class="chip">proposed</span><span class="mute"> · owner: service owner</span><div>
+<b>Risk:</b>None (process change). · <b>Downtime:</b>none</div>
+<div>
+<b>Rollback:</b><span class="mono">Not applicable.</span>
+</div>
+</div>
+<div class="card">
+<h3>R-6 · Sample sysstat every minute; alert on systemd "Failed with result 'oom-kill'" and on memory.events oom_kill for the unit; review why the external monitor did not record the 07:16 outage.</h3>
+<span class="chip">long-term</span> <span class="chip">observability</span> <span class="chip">proposed</span><span class="mute"> · owner: sysadmin / monitoring team</span><pre>mkdir -p /etc/systemd/system/sysstat-collect.timer.d &amp;&amp; printf '[Timer]\nOnCalendar=\nOnCalendar=*:*:00\n' &gt; /etc/systemd/system/sysstat-collect.timer.d/1min.conf &amp;&amp; systemctl daemon-reload &amp;&amp; systemctl restart sysstat-collect.timer</pre>
+<div>
+<b>Risk:</b>Negligible (sa file grows about 10x, still small). · <b>Downtime:</b>none</div>
+<div>
+<b>Rollback:</b><span class="mono">rm /etc/systemd/system/sysstat-collect.timer.d/1min.conf &amp;&amp; systemctl daemon-reload &amp;&amp; systemctl restart sysstat-collect.timer</span>
+</div>
+</div>
+<h2>Validation</h2>
+<div class="card"><ul>
+<li>With the /report job re-enabled at its normal rate, MemoryCurrent of inventory-api.service stays flat (no ~110 MB step per call) over 24 h.</li>
+<li>No "Failed with result 'oom-kill'" for inventory-api.service and NRestarts unchanged for 24 h; memory.events oom_kill stays 0.</li>
+<li>External monitor shows no /health failures for 7 days; Phase 1 STAB-03 and STAB-06 return to pass on re-collection.</li>
+</ul></div>
+<h2>Commands run on the host <span class="mute">(offline-bundle)</span>
+</h2>
+<div class="wrap"><table><tr>
+<th>Time</th>
+<th>Read-only</th>
+<th>Command</th>
+</tr></table></div>
+<p class="mute">Cleanup: No access to the host in this engagement; analysis done on the offline bundle only. No commands run on the target, nothing to clean up. The client's own collection run removed /tmp/collect.sh and its temporary files at 08:04:20.</p></main></body>
+</html>

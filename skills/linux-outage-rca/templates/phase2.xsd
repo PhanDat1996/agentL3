@@ -1,0 +1,197 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Schema for the Phase 2 (agent deep-analysis) report.
+     Validate with xmllint using the noout and schema options (see SKILL.md).
+     Paths in file attributes are relative to the extracted bundle directory. -->
+<xs:schema xmlns:xs="http://www.w3.org/2001/XMLSchema" elementFormDefault="qualified">
+
+  <xs:simpleType name="status"><xs:restriction base="xs:string">
+    <xs:enumeration value="healthy"/><xs:enumeration value="attention"/>
+    <xs:enumeration value="degraded"/><xs:enumeration value="critical"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="domainStatus"><xs:restriction base="xs:string">
+    <xs:enumeration value="ok"/><xs:enumeration value="warn"/>
+    <xs:enumeration value="critical"/><xs:enumeration value="unknown"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="confidence"><xs:restriction base="xs:string">
+    <xs:enumeration value="confirmed"/><xs:enumeration value="probable"/>
+    <xs:enumeration value="hypothesis"/><xs:enumeration value="unknown"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="severity"><xs:restriction base="xs:string">
+    <xs:enumeration value="critical"/><xs:enumeration value="high"/>
+    <xs:enumeration value="medium"/><xs:enumeration value="low"/><xs:enumeration value="info"/>
+  </xs:restriction></xs:simpleType>
+  <xs:simpleType name="domainName"><xs:restriction base="xs:string">
+    <xs:enumeration value="hardware"/><xs:enumeration value="virtualization"/>
+    <xs:enumeration value="kernel"/><xs:enumeration value="cpu"/><xs:enumeration value="memory"/>
+    <xs:enumeration value="storage"/><xs:enumeration value="network"/>
+    <xs:enumeration value="services"/><xs:enumeration value="application"/>
+    <xs:enumeration value="observability"/><xs:enumeration value="security"/>
+  </xs:restriction></xs:simpleType>
+
+  <!-- a piece of evidence: where it is and what it says -->
+  <xs:complexType name="evidence"><xs:simpleContent><xs:extension base="xs:string">
+    <xs:attribute name="file" type="xs:string" use="required"/>
+    <xs:attribute name="line" type="xs:string"/>
+    <xs:attribute name="timestamp" type="xs:string"/>
+  </xs:extension></xs:simpleContent></xs:complexType>
+
+  <xs:element name="rca-phase2-analysis">
+    <xs:complexType><xs:sequence>
+
+      <xs:element name="engagement"><xs:complexType><xs:sequence>
+        <xs:element name="host" type="xs:string"/>
+        <xs:element name="client-report" type="xs:string"/>
+        <xs:element name="analyst" type="xs:string"/>
+        <xs:element name="analysis-model" type="xs:string" minOccurs="0"/>
+        <xs:element name="phase1-ref"><xs:complexType>
+          <xs:attribute name="file" type="xs:string" use="required"/>
+          <xs:attribute name="status" type="xs:string"/>
+          <xs:attribute name="score" type="xs:string"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="executive-summary" type="xs:string"/>
+
+      <xs:element name="incidents"><xs:complexType><xs:sequence>
+        <xs:element name="incident" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="symptom" type="xs:string"/>
+        </xs:sequence>
+          <xs:attribute name="id" type="xs:ID" use="required"/>
+          <xs:attribute name="start" type="xs:string" use="required"/>
+          <xs:attribute name="end" type="xs:string"/>
+          <xs:attribute name="source" type="xs:string"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="assessment"><xs:complexType><xs:sequence>
+        <xs:element name="domain" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>
+          <xs:extension base="xs:string">
+            <xs:attribute name="name" type="domainName" use="required"/>
+            <xs:attribute name="status" type="domainStatus" use="required"/>
+          </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+      </xs:sequence>
+        <xs:attribute name="overall" type="status" use="required"/>
+        <xs:attribute name="recurrence-risk" type="severity" use="required"/>
+      </xs:complexType></xs:element>
+
+      <xs:element name="root-cause"><xs:complexType><xs:sequence>
+        <xs:element name="summary" type="xs:string"/>
+        <xs:element name="mechanism"><xs:complexType><xs:sequence>
+          <xs:element name="step" type="xs:string" maxOccurs="unbounded"/>
+        </xs:sequence></xs:complexType></xs:element>
+        <xs:element name="trigger" type="xs:string"/>
+        <xs:element name="why-intermittent" type="xs:string"/>
+        <xs:element name="why-now" type="xs:string" minOccurs="0"/>
+        <xs:element name="contributing-factor" type="xs:string" minOccurs="0" maxOccurs="unbounded"/>
+        <xs:element name="confirm-by" type="xs:string" minOccurs="0"/>
+        <!-- split confidence: e.g. "kill confirmed" vs "mechanism probable" -->
+        <xs:element name="confidence-detail" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>
+          <xs:extension base="xs:string">
+            <xs:attribute name="confidence" type="confidence" use="required"/>
+          </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+      </xs:sequence>
+        <xs:attribute name="confidence" type="confidence" use="required"/>
+      </xs:complexType></xs:element>
+
+      <xs:element name="findings"><xs:complexType><xs:sequence>
+        <xs:element name="finding" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="title" type="xs:string"/>
+          <xs:element name="description" type="xs:string"/>
+          <xs:element name="evidence" type="evidence" maxOccurs="unbounded"/>
+        </xs:sequence>
+          <xs:attribute name="id" type="xs:ID" use="required"/>
+          <xs:attribute name="severity" type="severity" use="required"/>
+          <xs:attribute name="confidence" type="confidence" use="required"/>
+          <xs:attribute name="domain" type="domainName" use="required"/>
+          <xs:attribute name="related-checks" type="xs:string"/>
+          <xs:attribute name="incidents" type="xs:IDREFS"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="timeline"><xs:complexType><xs:sequence>
+        <xs:element name="event" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>
+          <xs:extension base="xs:string">
+            <xs:attribute name="time" type="xs:string" use="required"/>
+            <xs:attribute name="source" type="xs:string" use="required"/>
+            <xs:attribute name="incident" type="xs:IDREF"/>
+          </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="ruled-out"><xs:complexType><xs:sequence>
+        <xs:element name="hypothesis" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="reason" type="xs:string"/>
+          <xs:element name="evidence" type="evidence" minOccurs="0" maxOccurs="unbounded"/>
+        </xs:sequence>
+          <xs:attribute name="name" type="xs:string" use="required"/>
+          <xs:attribute name="domain" type="domainName"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <!-- the agent's verdict on every non-pass Phase 1 check -->
+      <xs:element name="phase1-review"><xs:complexType><xs:sequence>
+        <xs:element name="check" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>
+          <xs:extension base="xs:string">
+            <xs:attribute name="id" type="xs:string" use="required"/>
+            <xs:attribute name="subject" type="xs:string"/>
+            <xs:attribute name="verdict" use="required"><xs:simpleType><xs:restriction base="xs:string">
+              <xs:enumeration value="root-cause"/><xs:enumeration value="contributing"/>
+              <xs:enumeration value="symptom"/><xs:enumeration value="unrelated"/>
+              <xs:enumeration value="noise"/><xs:enumeration value="needs-action"/>
+            </xs:restriction></xs:simpleType></xs:attribute>
+          </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="recommendations"><xs:complexType><xs:sequence>
+        <xs:element name="recommendation" maxOccurs="unbounded"><xs:complexType><xs:sequence>
+          <xs:element name="action" type="xs:string"/>
+          <xs:element name="command" type="xs:string" minOccurs="0"/>
+          <xs:element name="risk" type="xs:string"/>
+          <xs:element name="downtime" type="xs:string"/>
+          <xs:element name="rollback" type="xs:string"/>
+          <xs:element name="owner" type="xs:string" minOccurs="0"/>
+        </xs:sequence>
+          <xs:attribute name="id" type="xs:ID" use="required"/>
+          <xs:attribute name="priority" use="required"><xs:simpleType><xs:restriction base="xs:string">
+            <xs:enumeration value="immediate"/><xs:enumeration value="short-term"/><xs:enumeration value="long-term"/>
+          </xs:restriction></xs:simpleType></xs:attribute>
+          <xs:attribute name="type" use="required"><xs:simpleType><xs:restriction base="xs:string">
+            <xs:enumeration value="mitigation"/><xs:enumeration value="fix"/>
+            <xs:enumeration value="prevention"/><xs:enumeration value="observability"/>
+          </xs:restriction></xs:simpleType></xs:attribute>
+          <xs:attribute name="status" use="required"><xs:simpleType><xs:restriction base="xs:string">
+            <xs:enumeration value="proposed"/><xs:enumeration value="approved"/>
+            <xs:enumeration value="applied"/><xs:enumeration value="rejected"/>
+          </xs:restriction></xs:simpleType></xs:attribute>
+          <xs:attribute name="addresses" type="xs:IDREFS"/>
+        </xs:complexType></xs:element>
+      </xs:sequence></xs:complexType></xs:element>
+
+      <xs:element name="validation"><xs:complexType><xs:sequence>
+        <xs:element name="criterion" type="xs:string" maxOccurs="unbounded"/>
+        <xs:element name="result" type="xs:string" minOccurs="0"/>
+      </xs:sequence>
+        <xs:attribute name="status" use="required"><xs:simpleType><xs:restriction base="xs:string">
+          <xs:enumeration value="pending"/><xs:enumeration value="passed"/><xs:enumeration value="failed"/>
+        </xs:restriction></xs:simpleType></xs:attribute>
+      </xs:complexType></xs:element>
+
+      <xs:element name="actions-on-host"><xs:complexType><xs:sequence>
+        <xs:element name="command" minOccurs="0" maxOccurs="unbounded"><xs:complexType><xs:simpleContent>
+          <xs:extension base="xs:string">
+            <xs:attribute name="read-only" type="xs:boolean" use="required"/>
+            <xs:attribute name="time" type="xs:string"/>
+          </xs:extension></xs:simpleContent></xs:complexType></xs:element>
+        <xs:element name="cleanup" type="xs:string" minOccurs="0"/>
+      </xs:sequence>
+        <xs:attribute name="access" use="required"><xs:simpleType><xs:restriction base="xs:string">
+          <xs:enumeration value="offline-bundle"/><xs:enumeration value="ssh-read-only"/><xs:enumeration value="ssh-with-changes"/>
+        </xs:restriction></xs:simpleType></xs:attribute>
+      </xs:complexType></xs:element>
+
+    </xs:sequence>
+      <xs:attribute name="version" type="xs:string" use="required"/>
+      <xs:attribute name="generated" type="xs:string" use="required"/>
+      <xs:attribute name="redacted" type="xs:boolean" use="required"/>
+    </xs:complexType>
+  </xs:element>
+</xs:schema>

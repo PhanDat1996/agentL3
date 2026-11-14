@@ -5,10 +5,11 @@
 # no package installs, no service restarts, no sysctl writes. Every command is
 # best-effort and time-boxed so a hung NFS mount or slow disk cannot wedge it.
 #
-# Usage:  sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS] [-r] [-x TERMS_FILE]
+# Usage:  sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS] [-l PORTS] [-r] [-x TERMS_FILE]
 #   -d  how many days of journal / sar history to pull (default 7)
 #   -o  output parent dir (default /tmp)
 #   -s  live sampling duration for vmstat/iostat/mpstat (default 30, 0 = skip)
+#   -l  comma-separated ports the service should be listening on (Phase 1 check), e.g. 443,8088
 #   -r  redact: pseudonymise hostnames, domains, IPs, MACs, emails, local users and
 #       SSH fingerprints before packing. The token->value map stays on this host.
 #   -x  extra terms to redact (one per line: customer/app names, ...); implies -r
@@ -16,12 +17,12 @@
 
 set -u
 export LC_ALL=C S_TIME_FORMAT=ISO   # 24h timestamps in sar, stable parsing
-DAYS=7; OUT_PARENT=/tmp; SAMPLE=30; REDACT=0; TERMS=
-while getopts "d:o:s:rx:h" o; do
+DAYS=7; OUT_PARENT=/tmp; SAMPLE=30; REDACT=0; TERMS=; PORTS=
+while getopts "d:o:s:l:rx:h" o; do
   case $o in
     d) DAYS=$OPTARG ;; o) OUT_PARENT=$OPTARG ;; s) SAMPLE=$OPTARG ;;
-    r) REDACT=1 ;; x) REDACT=1; TERMS=$OPTARG ;;
-    *) sed -n '2,16p' "$0"; exit 0 ;;
+    l) PORTS=$OPTARG ;; r) REDACT=1 ;; x) REDACT=1; TERMS=$OPTARG ;;
+    *) sed -n '2,17p' "$0"; exit 0 ;;
   esac
 done
 
@@ -80,6 +81,7 @@ have journalctl && run 03-journal-kernel.txt 60 journalctl -k --since "$SINCE" -
 if have journalctl; then
   run 04-journal-err.txt 90 journalctl -p warning --since "$SINCE" --no-pager -o short-iso
   run 04-journal-disk-usage.txt 10 journalctl --disk-usage
+  sh_run 04-journal-disk-usage.txt 5 'test -d /var/log/journal && echo "journal storage: persistent" || echo "journal storage: volatile"'
 fi
 copy /var/log/messages /var/log/syslog /var/log/kern.log /var/log/dmesg /var/log/boot.log
 for f in /var/log/messages-* /var/log/syslog.1 /var/log/kern.log.1; do copy "$f"; done
@@ -104,7 +106,7 @@ mv "$OUT/.sig_hits" "$OUT/05-signal-hits-all.txt"
 F=06-memory.txt
 run $F 5 free -m
 sh_run $F 5 'cat /proc/meminfo'
-sh_run $F 5 'cat /proc/pressure/memory /proc/pressure/cpu /proc/pressure/io 2>/dev/null'
+sh_run $F 5 'grep -H . /proc/pressure/memory /proc/pressure/cpu /proc/pressure/io 2>/dev/null'
 sh_run $F 5 'cat /proc/swaps; cat /proc/sys/vm/swappiness /proc/sys/vm/overcommit_memory /proc/sys/vm/min_free_kbytes'
 have slabtop && sh_run $F 10 'slabtop -o -s c | head -30'
 sh_run $F 10 'ps -eo pid,ppid,user,rss,vsz,pmem,pcpu,stat,lstart,comm --sort=-rss | head -40'
@@ -295,8 +297,18 @@ redact() {
 {
   echo "host=$HOST collected=$(date -R) since=\"$SINCE\" days=$DAYS sample=$SAMPLE uid=$(id -u)"
   echo "tools: $(for t in journalctl sar iostat vmstat mpstat perf crash kdumpctl smartctl ethtool nstat multipath; do have $t && printf '%s ' $t; done)"
+  [ -n "$PORTS" ] && echo "expected_ports=$PORTS"
   echo "missing: $(for t in journalctl sar iostat vmstat mpstat perf crash smartctl ethtool nstat; do have $t || printf '%s ' $t; done)"
 } > "$OUT/MANIFEST.txt"
+# Phase 1 report (statistics + checks) if phase1-report.sh was copied alongside
+HERE=$(cd "$(dirname "$0")" && pwd)
+if [ -r "$HERE/phase1-report.sh" ]; then
+  bash "$HERE/phase1-report.sh" "$OUT" | sed 's/^/  /'
+  [ -r "$HERE/../templates/phase1.xsl" ] && cp "$HERE/../templates/phase1.xsl" "$OUT/"
+  [ -r "$HERE/phase1.xsl" ] && cp "$HERE/phase1.xsl" "$OUT/"
+else
+  echo "  (phase1-report.sh not next to collect.sh: run it later on the bundle)"
+fi
 [ "$REDACT" -eq 1 ] && redact
 tar -C "$OUT_PARENT" -czf "$OUT.tar.gz" "$(basename "$OUT")" 2>/dev/null
 echo "done: $OUT.tar.gz ($(du -h "$OUT.tar.gz" | cut -f1))"
