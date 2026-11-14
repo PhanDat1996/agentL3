@@ -17,6 +17,8 @@ skills/linux-outage-rca/
   scripts/watch.sh                         opt-in flight recorder to catch the next occurrence
   references/playbook.md                   triage questions, read order, decision tree, common fixes
   templates/rca-report.md                  RCA deliverable format
+local/claude-local.sh                      run the agent on a local Ollama model (offline)
+docs/privacy-and-local-mode.md             redaction + local-model guide
 examples/
   lab-fault/                               the fault used to test the agent blind
   RCA-example-inventory-api.md             the report the agent produced
@@ -55,6 +57,16 @@ sudo bash collect.sh -d 14 -s 30      # on the server; produces /tmp/rca-<host>-
 - When running as a subagent it returns proposed changes instead of applying them.
 - Every claim in the RCA cites a file, line and timestamp; causes are labelled confirmed vs probable.
 
+## Client can't share data?
+
+- **Redact:** `sudo bash collect.sh -r` (or `-x terms.txt` for customer/app names) replaces hostnames,
+  domains, IPs, MACs, emails, users and SSH fingerprints with consistent tokens (`HOST_1`, `IP_PRIV_3`, …).
+  The token map never leaves the client's host.
+- **Run fully local:** `./local/claude-local.sh qwen3-coder:30b 65536` runs the same agent on an Ollama
+  model with telemetry off, so nothing leaves the analysis machine.
+
+Details, sizing and trade-offs: [docs/privacy-and-local-mode.md](docs/privacy-and-local-mode.md).
+
 ## `collect.sh` coverage
 
 Boot history and how each previous boot ended · kernel log and a signature scan (OOM, hung task, soft
@@ -65,7 +77,7 @@ for N days · live vmstat/iostat/mpstat sample · systemd failures, coredumps ·
 limits, recently installed packages · login history.
 
 ```
-sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS]
+sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS] [-r] [-x TERMS_FILE]
 ```
 
 ## Blind test

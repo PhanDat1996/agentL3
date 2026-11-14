@@ -35,6 +35,9 @@ things worse beat speed.
    ssh HOST 'sudo bash /tmp/collect.sh -d 14 -s 30'
    scp HOST:/tmp/rca-*.tar.gz ./evidence/
    ```
+   If the client can't share identifiers, use `-r` (or `-x terms.txt` for customer/app names). Tokens
+   like `HOST_1`, `IP_PRIV_3`, `USER_2` are consistent across files; analyse and report with the tokens and
+   never try to guess the real values. The map stays on the client's host.
    Extract into a local working dir (`tar -xzf ... -C evidence/`) and analyse locally. If the box has no
    sudo, run without it and note what's missing. Fleet: run per host, compare.
 3. **Analyse** — follow `references/playbook.md` (read order + decision tree). Build a timeline that lines
@@ -50,6 +53,13 @@ things worse beat speed.
 7. **Report** — fill `templates/rca-report.md` into `./RCA-<host>-<date>.md` (English by default — it's
    client-facing). Every claim cites its evidence file. Clean up anything you left on the host
    (`watch.sh stop`, `/tmp/collect.sh`, `/tmp/rca-*`) and list that in the appendix.
+
+## Running on a local model
+
+When running on a smaller local model (via Ollama), keep context lean: start from `MANIFEST.txt` and
+`00-signals.txt`, use `grep`/`sed -n` with time windows around the outage instead of reading whole files,
+and write findings to the worklog as you go. Be stricter about labelling causes "probable" unless the
+evidence is quoted at every incident timestamp.
 
 ## Files
 

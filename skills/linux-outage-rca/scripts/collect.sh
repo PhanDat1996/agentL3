@@ -5,19 +5,23 @@
 # no package installs, no service restarts, no sysctl writes. Every command is
 # best-effort and time-boxed so a hung NFS mount or slow disk cannot wedge it.
 #
-# Usage:  sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS]
+# Usage:  sudo bash collect.sh [-d DAYS] [-o OUTDIR] [-s SAMPLE_SECS] [-r] [-x TERMS_FILE]
 #   -d  how many days of journal / sar history to pull (default 7)
 #   -o  output parent dir (default /tmp)
 #   -s  live sampling duration for vmstat/iostat/mpstat (default 30, 0 = skip)
-# Output: OUTDIR/rca-<host>-<ts>.tar.gz  (and the unpacked dir next to it)
+#   -r  redact: pseudonymise hostnames, domains, IPs, MACs, emails, local users and
+#       SSH fingerprints before packing. The token->value map stays on this host.
+#   -x  extra terms to redact (one per line: customer/app names, ...); implies -r
+# Output: OUTDIR/rca-<host>-<ts>.tar.gz  (rca-redacted-<ts>.tar.gz with -r)
 
 set -u
 export LC_ALL=C S_TIME_FORMAT=ISO   # 24h timestamps in sar, stable parsing
-DAYS=7; OUT_PARENT=/tmp; SAMPLE=30
-while getopts "d:o:s:h" o; do
+DAYS=7; OUT_PARENT=/tmp; SAMPLE=30; REDACT=0; TERMS=
+while getopts "d:o:s:rx:h" o; do
   case $o in
     d) DAYS=$OPTARG ;; o) OUT_PARENT=$OPTARG ;; s) SAMPLE=$OPTARG ;;
-    *) sed -n '2,13p' "$0"; exit 0 ;;
+    r) REDACT=1 ;; x) REDACT=1; TERMS=$OPTARG ;;
+    *) sed -n '2,16p' "$0"; exit 0 ;;
   esac
 done
 
@@ -204,11 +208,96 @@ sh_run $F 10 'last -F -n 50 2>/dev/null || wtmpdb last -F -n 50'
 sh_run $F 10 'lastb -n 30 2>/dev/null | head -30'
 sh_run $F 10 'journalctl --since "'"$SINCE"'" -u sshd -u ssh --no-pager 2>/dev/null | grep -c "Failed password" | sed "s/^/ssh failed-password count: /"'
 
+# ---------- redaction (-r / -x) ----------
+# One awk pass over every text file so tokens stay consistent across the bundle
+# (IP_PRIV_3 is the same address everywhere). Loopback/any/broadcast addresses and
+# systemd unit names (user@1000.service) are kept so the evidence stays readable.
+# Best effort: anything not listed here (app names, paths) needs -x.
+redact() {
+  local terms="$OUT/.redact-terms" list="$OUT/.redact-files" f
+  MAP="$OUT_PARENT/rca-redact-map-$TS.txt"
+  {
+    for h in "$(hostname -s 2>/dev/null)" "$(hostname -f 2>/dev/null)" "$(hostname 2>/dev/null)" "$HOST"; do
+      printf 'HOST\t%s\n' "$h"
+    done
+    d=$(hostname -d 2>/dev/null); [ -n "$d" ] && printf 'DOMAIN\t%s\n' "$d"
+    awk '/^(search|domain)[ \t]/{for(i=2;i<=NF;i++) print "DOMAIN\t" $i}' /etc/resolv.conf 2>/dev/null
+    awk -F: '$3>=1000 && $3<65534 {print "USER\t" $1}' /etc/passwd
+    [ -n "$TERMS" ] && [ -r "$TERMS" ] && grep -v '^[[:space:]]*$' "$TERMS" | sed 's/^/TERM\t/'
+  } | awk -F'\t' 'length($2)>=3 && $2!="localhost" && $2!="localdomain" && !seen[$2]++ {print length($2) "\t" $0}' \
+    | sort -rn | cut -f2- > "$terms"
+  find "$OUT" -type f ! -name '.redact-*' -exec grep -Il . {} + > "$list" 2>/dev/null
+  # shellcheck disable=SC2046
+  awk -F'\t' -v mapfile="$MAP" '
+    function tok(kind, v,   k) {
+      k = kind SUBSEP v
+      if (!(k in map)) { cnt[kind]++; map[k] = kind "_" cnt[kind]; rows[++n] = map[k] "\t" v }
+      return map[k]
+    }
+    function wc(c) { return c ~ /[A-Za-z0-9_]/ }
+    function lit(s, from, to,   out, i, L, pre) {
+      out = ""; L = length(from)
+      while ((i = index(s, from)) > 0) {
+        pre = (i > 1) ? substr(s, i-1, 1) : ""
+        if (!wc(pre) && !wc(substr(s, i+L, 1))) out = out substr(s, 1, i-1) to
+        else out = out substr(s, 1, i-1+L)
+        s = substr(s, i+L)
+      }
+      return out s
+    }
+    function ip4(m, pre, post,   o, i) {
+      if (pre ~ /[A-Za-z0-9._-]/ || post ~ /[A-Za-z0-9_-]/) return m
+      split(m, o, "."); for (i = 1; i <= 4; i++) if (o[i] + 0 > 255) return m
+      if (o[1] == 127 || m == "0.0.0.0" || o[1] == 255 || m ~ /^255\./) return m
+      if (o[1] == 10 || (o[1] == 192 && o[2] == 168) || (o[1] == 172 && o[2] >= 16 && o[2] <= 31) \
+          || (o[1] == 169 && o[2] == 254) || (o[1] == 100 && o[2] >= 64 && o[2] <= 127))
+        return tok("IP_PRIV", m)
+      return tok("IP_PUB", m)
+    }
+    function one(kind, m, pre, post) {
+      if (kind == "IP4") return ip4(m, pre, post)
+      if (kind == "EMAIL") return (m ~ /\.(service|socket|timer|mount|target|slice|scope|path|device|swap|automount)$/) ? m : tok("EMAIL", m)
+      if (kind == "MAC") return (m ~ /^(ff:ff:ff:ff:ff:ff|00:00:00:00:00:00)$/) ? m : tok("MAC", tolower(m))
+      if (kind == "IP6") return (gsub(/:/, ":", m) >= 2 && pre !~ /[A-Za-z0-9_]/) ? tok("IP6", m) : m
+      return tok(kind, m)
+    }
+    function rx(s, re, kind,   out, m, pre) {
+      out = ""
+      while (match(s, re)) {
+        m = substr(s, RSTART, RLENGTH); pre = (RSTART > 1) ? substr(s, RSTART-1, 1) : ""
+        out = out substr(s, 1, RSTART-1) one(kind, m, pre, substr(s, RSTART+RLENGTH, 1))
+        s = substr(s, RSTART+RLENGTH)
+      }
+      return out s
+    }
+    NR == FNR && FILENAME ~ /\.redact-terms$/ { tk[++nt] = $1; tv[nt] = $2; next }
+    FNR == 1 { if (outf) close(outf); outf = FILENAME ".red" }
+    {
+      s = $0
+      s = rx(s, "SHA256:[A-Za-z0-9+/]+", "FP")
+      s = rx(s, "[A-Za-z0-9._%+-]+@[A-Za-z][A-Za-z0-9.-]*\\.[A-Za-z][A-Za-z]+", "EMAIL")
+      s = rx(s, "[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f][0-9A-Fa-f]", "MAC")
+      s = rx(s, "[23][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]:[0-9A-Fa-f:]*:[0-9A-Fa-f]+", "IP6")
+      s = rx(s, "[0-9]+\\.[0-9]+\\.[0-9]+\\.[0-9]+", "IP4")
+      for (i = 1; i <= nt; i++) if (index(s, tv[i])) s = lit(s, tv[i], tok(tk[i], tv[i]))
+      print s > outf
+    }
+    END { if (outf) close(outf); for (i = 1; i <= n; i++) print rows[i] > mapfile }
+  ' "$terms" $(cat "$list")
+  while read -r f; do mv -f "$f.red" "$f"; done < "$list"
+  rm -f "$terms" "$list"; chmod 600 "$MAP" 2>/dev/null
+  # hostname is also in the directory name
+  mv "$OUT" "$OUT_PARENT/rca-redacted-$TS" && OUT="$OUT_PARENT/rca-redacted-$TS"
+  echo "REDACTED bundle: identifiers replaced by tokens (HOST_n, IP_PRIV_n, USER_n, ...). Map kept on host only." > "$OUT/REDACTED.txt"
+}
+
 # ---------- manifest & pack ----------
 {
   echo "host=$HOST collected=$(date -R) since=\"$SINCE\" days=$DAYS sample=$SAMPLE uid=$(id -u)"
   echo "tools: $(for t in journalctl sar iostat vmstat mpstat perf crash kdumpctl smartctl ethtool nstat multipath; do have $t && printf '%s ' $t; done)"
   echo "missing: $(for t in journalctl sar iostat vmstat mpstat perf crash smartctl ethtool nstat; do have $t || printf '%s ' $t; done)"
 } > "$OUT/MANIFEST.txt"
+[ "$REDACT" -eq 1 ] && redact
 tar -C "$OUT_PARENT" -czf "$OUT.tar.gz" "$(basename "$OUT")" 2>/dev/null
 echo "done: $OUT.tar.gz ($(du -h "$OUT.tar.gz" | cut -f1))"
+[ "$REDACT" -eq 1 ] && echo "redaction map (keep private, do NOT send): $MAP"
