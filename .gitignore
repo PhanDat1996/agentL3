@@ -1,0 +1,5 @@
+evidence/
+*.tar.gz
+rca-*/
+worklog-*.md
+.DS_Store

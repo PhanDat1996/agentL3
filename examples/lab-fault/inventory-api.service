@@ -1,0 +1,12 @@
+[Unit]
+Description=Inventory API
+After=network.target
+[Service]
+ExecStart=/usr/bin/python3 /opt/inventory-api/app.py
+DynamicUser=yes
+MemoryMax=320M
+MemorySwapMax=0
+Restart=on-failure
+RestartSec=45
+[Install]
+WantedBy=multi-user.target
